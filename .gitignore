@@ -1,0 +1,41 @@
+# Segredos, configurações locais e certificados
+.env
+.env.*
+!.env.example
+server/.env
+server/.revit_mcp_bridge.json
+*.pfx
+*.p12
+*.key
+*.snk
+addin/RevitMcp-LocalDevelopment*.cer
+
+# Build e dependências locais
+addin/bin/
+addin/obj/
+server/__pycache__/
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Manifesto instalado localmente (contém caminho absoluto do usuário)
+addin/RevitMcp.addin
+
+# Projetos, famílias, backups e saídas do Revit
+*.rvt
+*.rfa
+*.rte
+*.000[0-9].rvt
+*.000[0-9].rfa
+*.dwg
+*.ifc
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.svg
+
+# Artefatos e caches locais
+.chrome-render/
+*.log
