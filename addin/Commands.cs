@@ -44,6 +44,7 @@ using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.DB.Visual;
+using Autodesk.Revit.DB.ExtensibleStorage;
 using Autodesk.Revit.UI;
 
 namespace RevitMcp
@@ -79,6 +80,9 @@ namespace RevitMcp
                     : new HashSet<string>();
 
                 object resultado = ExecutarComando(uiApp, req);
+
+                if (doc != null && IsAuditableWrite(req.cmd))
+                    AppendAuditEntry(doc, uiApp.Application.Username, req.cmd, "concluído");
 
                 // Compara com estado pós-comando; se surgiram avisos novos, anexa ao retorno.
                 if (doc != null)
@@ -127,6 +131,10 @@ namespace RevitMcp
                     case "save_document":   return SaveDocument(uiApp);
                     case "save_as":         return SaveAs(uiApp, req.args);
                     case "delete_element":  return DeleteElement(uiApp, req.args);
+                    case "preview_delete":  return PreviewDelete(uiApp, req.args);
+                    case "backup_document": return BackupDocument(uiApp, req.args);
+                    case "plan_batch":      return PlanBatch(uiApp, req.args);
+                    case "execute_batch":   return ExecuteBatch(uiApp, req.args);
 
                     // --- Criação de elementos ---
                     case "create_level":    return CreateLevel(uiApp, req.args);
@@ -230,10 +238,83 @@ namespace RevitMcp
                     case "set_line_style":    return SetLineStyle(uiApp, req.args);
                     case "import_cad":        return ImportCad(uiApp, req.args);
                     case "validate_document": return ValidateDocument(uiApp);
+                    case "analyze_bim_quality": return AnalyzeBimQuality(uiApp);
+                    case "validate_room_program": return ValidateRoomProgram(uiApp, req.args);
+                    case "audit_documentation": return AuditDocumentation(uiApp);
+                    case "get_worksharing_status": return GetWorksharingStatus(uiApp);
+                    case "get_element_worksharing_info": return GetElementWorksharingInfo(uiApp, req.args);
+                    case "list_audit_log": return ListAuditLog(uiApp, req.args);
 
                     default:
                         throw new Exception($"Comando desconhecido: {req.cmd}");
                 }
+        }
+
+        private static bool IsAuditableWrite(string cmd)
+        {
+            if (string.IsNullOrWhiteSpace(cmd)) return false;
+            return !(cmd.StartsWith("list_", StringComparison.OrdinalIgnoreCase)
+                || cmd.StartsWith("get_", StringComparison.OrdinalIgnoreCase)
+                || cmd.StartsWith("validate_", StringComparison.OrdinalIgnoreCase)
+                || cmd.StartsWith("analyze_", StringComparison.OrdinalIgnoreCase)
+                || cmd.StartsWith("preview_", StringComparison.OrdinalIgnoreCase)
+                || cmd == "ping" || cmd == "bridge_health" || cmd == "save_document"
+                || cmd == "backup_document" || cmd.StartsWith("export_", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static readonly Guid AuditSchemaGuid = new Guid("9AD434C7-8A4A-4B66-AE0B-5A7D8AC835E1");
+
+        private static Schema AuditSchema()
+        {
+            var existing = Schema.Lookup(AuditSchemaGuid);
+            if (existing != null) return existing;
+            var builder = new SchemaBuilder(AuditSchemaGuid);
+            builder.SetSchemaName("RevitMcpAuditV1");
+            builder.SetReadAccessLevel(AccessLevel.Public);
+            builder.SetWriteAccessLevel(AccessLevel.Public);
+            builder.AddSimpleField("timestamp_utc", typeof(string));
+            builder.AddSimpleField("user", typeof(string));
+            builder.AddSimpleField("command", typeof(string));
+            builder.AddSimpleField("status", typeof(string));
+            return builder.Finish();
+        }
+
+        private static void AppendAuditEntry(Document doc, string user, string command, string status)
+        {
+            var schema = AuditSchema();
+            using (var tx = new Transaction(doc, "MCP: Auditoria"))
+            {
+                tx.Start();
+                var storage = DataStorage.Create(doc);
+                storage.Name = "MCP Audit " + DateTime.UtcNow.ToString("yyyyMMdd_HHmmssfff");
+                var entity = new Entity(schema);
+                entity.Set(schema.GetField("timestamp_utc"), DateTime.UtcNow.ToString("o"));
+                entity.Set(schema.GetField("user"), user ?? "desconhecido");
+                entity.Set(schema.GetField("command"), command);
+                entity.Set(schema.GetField("status"), status);
+                storage.SetEntity(entity);
+                tx.Commit();
+            }
+        }
+
+        private static object ListAuditLog(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var schema = Schema.Lookup(AuditSchemaGuid);
+            if (schema == null) return new { quantidade = 0, entradas = Array.Empty<object>() };
+            int limit = Math.Clamp((int)GetD(args, "limit", 50), 1, 500);
+            var entries = new FilteredElementCollector(doc).OfClass(typeof(DataStorage)).Cast<DataStorage>()
+                .Select(ds => new { ds, entity = ds.GetEntity(schema) })
+                .Where(x => x.entity.IsValid())
+                .Select(x => new {
+                    id = x.ds.Id.Value,
+                    instante_utc = x.entity.Get<string>(schema.GetField("timestamp_utc")),
+                    usuario = x.entity.Get<string>(schema.GetField("user")),
+                    comando = x.entity.Get<string>(schema.GetField("command")),
+                    status = x.entity.Get<string>(schema.GetField("status"))
+                })
+                .OrderByDescending(x => x.instante_utc).Take(limit).ToList();
+            return new { quantidade = entries.Count, entradas = entries };
         }
 
         // =====================================================================
@@ -668,6 +749,9 @@ namespace RevitMcp
         {
             var doc = RequireDoc(uiApp);
             long id = (long)GetDReq(args, "id");
+            bool confirmed = args.TryGetProperty("confirm", out var confirmValue) && confirmValue.ValueKind == JsonValueKind.True;
+            if (!confirmed)
+                throw new InvalidOperationException("Exclusão bloqueada. Execute preview_delete e repita delete_element com confirm=true.");
 
             using (var tx = new Transaction(doc, "MCP: Excluir elemento"))
             {
@@ -677,6 +761,119 @@ namespace RevitMcp
                 tx.Commit();
                 return new { excluidos = removed.Count };
             }
+        }
+
+        /// <summary>Mostra os impactos de uma exclusão sem modificar o modelo.</summary>
+        private static object PreviewDelete(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var element = doc.GetElement(GetElementIdReq(args, "id"))
+                ?? throw new Exception("Elemento não encontrado.");
+            var dependents = element.GetDependentElements(null).Where(id => id != element.Id).Select(id => {
+                var dependent = doc.GetElement(id);
+                return new { id = id.Value, nome = dependent?.Name, categoria = dependent?.Category?.Name };
+            }).ToList();
+            return new {
+                elemento = new { id = element.Id.Value, nome = element.Name, categoria = element.Category?.Name },
+                dependentes = dependents,
+                total_estimado = dependents.Count + 1,
+                proximo_passo = "Revise os impactos e execute delete_element com confirm=true somente se a exclusão for desejada."
+            };
+        }
+
+        /// <summary>
+        /// Salva o RVT e copia um ponto de restauração para a pasta indicada.
+        /// Não usa SaveAs: o documento ativo permanece no mesmo caminho.
+        /// Não é permitido para modelos workshared, que exigem fluxo central/local.
+        /// </summary>
+        private static object BackupDocument(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            if (doc.IsWorkshared)
+                throw new InvalidOperationException("Backup por cópia é bloqueado para modelo workshared. Use o fluxo de central/local da equipe.");
+            if (string.IsNullOrWhiteSpace(doc.PathName))
+                throw new InvalidOperationException("O documento ainda não possui caminho. Use save_as primeiro.");
+            var folder = GetS(args, "folder");
+            if (string.IsNullOrWhiteSpace(folder))
+                folder = Path.Combine(Path.GetDirectoryName(doc.PathName), "mcp-backups");
+            Directory.CreateDirectory(folder);
+            var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var name = Path.GetFileNameWithoutExtension(doc.PathName) + "_" + stamp + ".rvt";
+            var target = Path.Combine(folder, name);
+            doc.Save();
+            File.Copy(doc.PathName, target, false);
+            return new { backup = target, tamanho_bytes = new FileInfo(target).Length, origem = doc.PathName };
+        }
+
+        private static readonly HashSet<string> BatchCommands = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "create_level", "create_wall", "create_walls", "create_plan_layout", "create_box",
+            "create_floor", "create_roof", "create_ceiling", "create_column", "create_grid",
+            "create_detail_line", "create_detail_lines", "create_detail_rectangle", "create_text",
+            "create_material", "create_rectangular_prism", "place_kitchen_counter", "place_pool",
+            "place_rooms_at", "set_plan_crop", "set_wall_join", "set_line_style"
+        };
+
+        /// <summary>Valida e explica um lote antes de ele tocar no modelo.</summary>
+        private static object PlanBatch(UIApplication uiApp, JsonElement args)
+        {
+            RequireDoc(uiApp);
+            if (!args.TryGetProperty("operations", out var operations) || operations.ValueKind != JsonValueKind.Array)
+                throw new ArgumentException("Array 'operations' é obrigatório.");
+            var plan = new List<object>();
+            bool allAllowed = true;
+            int index = 0;
+            foreach (var item in operations.EnumerateArray())
+            {
+                string cmd = GetS(item, "cmd");
+                bool allowed = !string.IsNullOrWhiteSpace(cmd) && BatchCommands.Contains(cmd);
+                allAllowed &= allowed;
+                plan.Add(new { indice = index++, comando = cmd, permitido = allowed,
+                    risco = allowed ? "modelagem controlada" : "bloqueado",
+                    motivo = allowed ? "Pode ser executado dentro de TransactionGroup." : "Comando não permitido em lote; execute-o isoladamente." });
+            }
+            return new { simulacao_padrao = true, requer_commit_explicito = true, operacoes = plan,
+                permitido = allAllowed };
+        }
+
+        /// <summary>
+        /// Executa operações em TransactionGroup. Por padrão faz dry-run e
+        /// rollback; use commit=true somente após analisar plan_batch.
+        /// </summary>
+        private static object ExecuteBatch(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            if (!args.TryGetProperty("operations", out var operations) || operations.ValueKind != JsonValueKind.Array || operations.GetArrayLength() == 0)
+                throw new ArgumentException("Array 'operations' não vazio é obrigatório.");
+            bool commit = args.TryGetProperty("commit", out var cv) && cv.ValueKind == JsonValueKind.True;
+            var results = new List<object>();
+            using (var group = new TransactionGroup(doc, "MCP: Lote atômico"))
+            {
+                group.Start();
+                try
+                {
+                    int index = 0;
+                    foreach (var item in operations.EnumerateArray())
+                    {
+                        string cmd = GetS(item, "cmd");
+                        if (string.IsNullOrWhiteSpace(cmd) || !BatchCommands.Contains(cmd))
+                            throw new ArgumentException($"Operação {index}: comando '{cmd ?? "(vazio)"}' não permitido em lote.");
+                        var itemArgs = item.TryGetProperty("args", out var av) && av.ValueKind == JsonValueKind.Object
+                            ? av : JsonDocument.Parse("{}").RootElement.Clone();
+                        var result = ExecutarComando(uiApp, new RpcRequest { cmd = cmd, args = itemArgs });
+                        results.Add(new { indice = index, comando = cmd, resultado = result });
+                        index++;
+                    }
+                    if (commit) group.Assimilate(); else group.RollBack();
+                }
+                catch
+                {
+                    if (group.GetStatus() == TransactionStatus.Started) group.RollBack();
+                    throw;
+                }
+            }
+            return new { commit, simulacao = !commit, operacoes = results,
+                observacao = commit ? "Lote confirmado como uma única etapa de desfazer." : "Dry-run concluído; todas as alterações foram revertidas." };
         }
 
         // =====================================================================
@@ -4319,20 +4516,33 @@ namespace RevitMcp
             return new { pasta = folder, nome = name };
         }
 
-        /// <summary>Exporta o modelo em IFC.</summary>
+        /// <summary>Exporta o modelo em IFC com perfil explícito de interoperabilidade.</summary>
         private static object ExportIfc(UIApplication uiApp, JsonElement args)
         {
             var doc = RequireDoc(uiApp);
             string folder = GetS(args, "folder") ?? Path.GetTempPath();
             string name   = GetS(args, "name", "export_mcp.ifc");
             var opts = new IFCExportOptions();
+            string profile = (GetS(args, "profile", "coordination") ?? "coordination").ToLowerInvariant();
+            bool quantities = args.TryGetProperty("base_quantities", out var qv) ? qv.ValueKind == JsonValueKind.True : true;
+            int boundaries = (int)GetD(args, "space_boundaries", profile == "coordination" ? 0 : 2);
+            if (boundaries < 0 || boundaries > 2) throw new ArgumentException("space_boundaries deve ser 0, 1 ou 2.");
+            if (profile != "coordination" && profile != "architecture" && profile != "quantities")
+                throw new ArgumentException("profile deve ser coordination, architecture ou quantities.");
+            Directory.CreateDirectory(folder);
+            opts.AddOption("ExportBaseQuantities", quantities ? "true" : "false");
+            opts.AddOption("SpaceBoundaries", boundaries.ToString());
+            opts.AddOption("ExportInternalRevitPropertySets", "true");
+            opts.AddOption("ExportIFCCommonPropertySets", "true");
+            opts.AddOption("Export2DElements", profile == "architecture" ? "true" : "false");
+            opts.AddOption("SplitWallsAndColumns", "false");
             using (var tx = new Transaction(doc, "MCP: IFC"))
             {
                 tx.Start();
                 doc.Export(folder, name, opts);
                 tx.Commit();
             }
-            return new { pasta = folder, nome = name };
+            return new { pasta = folder, nome = name, profile, base_quantities = quantities, space_boundaries = boundaries };
         }
 
         // =====================================================================
@@ -4440,11 +4650,169 @@ namespace RevitMcp
         }
 
         /// <summary>
+        /// Auditoria BIM de leitura: complementa validate_document com sinais de
+        /// qualidade que um arquiteto precisa revisar antes de emitir pranchas.
+        /// Não interpreta norma local; aponta dados objetivos do modelo.
+        /// </summary>
+        private static object AnalyzeBimQuality(UIApplication uiApp)
+        {
+            var doc = RequireDoc(uiApp);
+            var rooms = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms)
+                .WhereElementIsNotElementType().Cast<Room>().ToList();
+            var roomTags = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_RoomTags)
+                .WhereElementIsNotElementType().GetElementCount();
+            var sheets = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>().ToList();
+            var walls = new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>().ToList();
+            var duplicateRoomNumbers = rooms.Where(r => !string.IsNullOrWhiteSpace(r.Number))
+                .GroupBy(r => r.Number).Where(g => g.Count() > 1).Select(g => new { numero = g.Key, ids = g.Select(r => r.Id.Value).ToList() }).ToList();
+            var duplicateSheetNumbers = sheets.Where(s => !string.IsNullOrWhiteSpace(s.SheetNumber))
+                .GroupBy(s => s.SheetNumber).Where(g => g.Count() > 1).Select(g => new { numero = g.Key, ids = g.Select(s => s.Id.Value).ToList() }).ToList();
+            var wallKeys = new Dictionary<string, List<long>>();
+            foreach (var wall in walls)
+            {
+                var line = (wall.Location as LocationCurve)?.Curve as Line;
+                if (line == null) continue;
+                var a = line.GetEndPoint(0); var b = line.GetEndPoint(1);
+                string PointKey(XYZ p) => $"{Math.Round(FtToM(p.X), 3):F3},{Math.Round(FtToM(p.Y), 3):F3}";
+                var p1 = PointKey(a); var p2 = PointKey(b);
+                var key = string.CompareOrdinal(p1, p2) <= 0 ? p1 + "|" + p2 : p2 + "|" + p1;
+                if (!wallKeys.TryGetValue(key, out var ids)) wallKeys[key] = ids = new List<long>();
+                ids.Add(wall.Id.Value);
+            }
+            var duplicatedWalls = wallKeys.Where(kv => kv.Value.Count > 1)
+                .Select(kv => new { ids = kv.Value, geometria = kv.Key }).ToList();
+            var issues = new List<object>();
+            bool hasError = duplicateRoomNumbers.Count > 0 || duplicateSheetNumbers.Count > 0;
+            if (rooms.Any(r => r.Area <= 0)) issues.Add(new { codigo = "AMBIENTE_SEM_AREA", severidade = "aviso", quantidade = rooms.Count(r => r.Area <= 0) });
+            if (duplicateRoomNumbers.Count > 0) issues.Add(new { codigo = "NUMERO_AMBIENTE_DUPLICADO", severidade = "erro", itens = duplicateRoomNumbers });
+            if (duplicateSheetNumbers.Count > 0) issues.Add(new { codigo = "NUMERO_PRANCHA_DUPLICADO", severidade = "erro", itens = duplicateSheetNumbers });
+            if (duplicatedWalls.Count > 0) issues.Add(new { codigo = "PAREDE_GEOMETRIA_DUPLICADA", severidade = "aviso", itens = duplicatedWalls });
+            if (rooms.Count > roomTags) issues.Add(new { codigo = "AMBIENTES_SEM_TAG_POTENCIAL", severidade = "aviso", quantidade = rooms.Count - roomTags });
+            return new {
+                status = hasError ? "reprovar" : (issues.Count == 0 ? "aprovado" : "revisar"),
+                resumo = new { ambientes = rooms.Count, tags_ambiente = roomTags, pranchas = sheets.Count, paredes = walls.Count },
+                problemas = issues,
+                escopo = "Qualidade BIM objetiva; normas municipais e NBR exigem regra configurada e revisão técnica."
+            };
+        }
+
+        /// <summary>Expõe o estado de colaboração sem tentar sincronizar ou tomar posse de elementos.</summary>
+        /// <summary>
+        /// Confere o programa de ambientes contra regras fornecidas pelo usuário.
+        /// Não presume requisitos de código local ou NBR: cada regra aceita
+        /// name_contains, count_min e min_area_m2.
+        /// </summary>
+        private static object ValidateRoomProgram(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            if (!args.TryGetProperty("requirements", out var requirements) || requirements.ValueKind != JsonValueKind.Array)
+                throw new ArgumentException("Informe requirements como lista de regras de ambiente.");
+
+            var rooms = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms)
+                .WhereElementIsNotElementType().Cast<Room>().ToList();
+            var checks = new List<object>();
+            var issues = new List<object>();
+            int index = 0;
+            foreach (var rule in requirements.EnumerateArray())
+            {
+                index++;
+                if (rule.ValueKind != JsonValueKind.Object)
+                    throw new ArgumentException($"requirements[{index - 1}] deve ser um objeto.");
+                var nameContains = GetS(rule, "name_contains", "");
+                var label = GetS(rule, "label", string.IsNullOrWhiteSpace(nameContains) ? $"regra_{index}" : nameContains);
+                int countMin = Math.Max(0, (int)GetD(rule, "count_min", 1));
+                double minArea = Math.Max(0, GetD(rule, "min_area_m2", 0));
+                if (string.IsNullOrWhiteSpace(nameContains))
+                    throw new ArgumentException($"requirements[{index - 1}].name_contains é obrigatório.");
+
+                var matches = rooms.Where(r => Normalizar(r.Name ?? "").Contains(Normalizar(nameContains))).ToList();
+                var qualified = matches.Where(r => r.Area > 0 && FtToM(r.Area) >= minArea).ToList();
+                var matchInfo = matches.Select(r => new {
+                    id = r.Id.Value, nome = r.Name, numero = r.Number,
+                    area_m2 = Math.Round(FtToM(r.Area), 2), posicionado = r.Area > 0
+                }).ToList();
+                bool countOk = matches.Count >= countMin;
+                bool areaOk = qualified.Count >= countMin;
+                if (!countOk) issues.Add(new { codigo = "AMBIENTE_AUSENTE", regra = label, esperado = countMin, encontrado = matches.Count });
+                else if (!areaOk) issues.Add(new { codigo = "AREA_MINIMA_NAO_ATENDIDA", regra = label, area_minima_m2 = minArea, ambientes = matchInfo });
+                checks.Add(new {
+                    regra = label, contem_nome = nameContains, quantidade_minima = countMin,
+                    area_minima_m2 = minArea, encontrado = matches.Count,
+                    conforme = countOk && areaOk, ambientes = matchInfo
+                });
+            }
+            return new {
+                status = issues.Count == 0 ? "aprovado" : "revisar",
+                regras = checks, problemas = issues,
+                escopo = "Regras configuradas pelo usuário; não substitui verificação de legislação local ou responsabilidade técnica."
+            };
+        }
+
+        /// <summary>
+        /// Confere a prontidão documental a partir de vistas, pranchas e viewports.
+        /// Não cria pranchas nem altera a publicação.
+        /// </summary>
+        private static object AuditDocumentation(UIApplication uiApp)
+        {
+            var doc = RequireDoc(uiApp);
+            var sheets = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>().ToList();
+            var placedViewIds = new HashSet<long>(new FilteredElementCollector(doc).OfClass(typeof(Viewport))
+                .Cast<Viewport>().Select(vp => vp.ViewId.Value));
+            var printableViews = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                .Where(v => !v.IsTemplate && !(v is ViewSheet) && v.CanBePrinted)
+                .ToList();
+            var unplaced = printableViews.Where(v => !placedViewIds.Contains(v.Id.Value))
+                .Select(v => new { id = v.Id.Value, nome = v.Name, tipo = v.ViewType.ToString() })
+                .OrderBy(v => v.tipo).ThenBy(v => v.nome).Take(100).ToList();
+            var duplicatedSheets = sheets.GroupBy(s => s.SheetNumber).Where(g => !string.IsNullOrWhiteSpace(g.Key) && g.Count() > 1)
+                .Select(g => new { numero = g.Key, ids = g.Select(s => s.Id.Value).ToList() }).ToList();
+            var issues = new List<object>();
+            if (sheets.Count == 0) issues.Add(new { codigo = "SEM_PRANCHA", severidade = "aviso", descricao = "Não há pranchas para emissão." });
+            if (duplicatedSheets.Count > 0) issues.Add(new { codigo = "NUMERO_PRANCHA_DUPLICADO", severidade = "erro", itens = duplicatedSheets });
+            if (unplaced.Count > 0) issues.Add(new { codigo = "VISTAS_NAO_POSICIONADAS", severidade = "aviso", quantidade = unplaced.Count });
+            return new {
+                status = duplicatedSheets.Count > 0 ? "reprovar" : (issues.Count == 0 ? "aprovado" : "revisar"),
+                resumo = new { pranchas = sheets.Count, vistas_imprimiveis = printableViews.Count, vistas_em_prancha = placedViewIds.Count, vistas_nao_posicionadas = unplaced.Count },
+                vistas_nao_posicionadas = unplaced, problemas = issues,
+                escopo = "Auditoria de emissão objetiva; a composição gráfica e os padrões do escritório ainda exigem revisão humana."
+            };
+        }
+
+        private static object GetWorksharingStatus(UIApplication uiApp)
+        {
+            var doc = RequireDoc(uiApp);
+            if (!doc.IsWorkshared)
+                return new { workshared = false, caminho = doc.PathName, recomendacao = "Modelo individual: use backup_document antes de lotes e habilite worksharing no Revit se houver equipe." };
+            var worksets = new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset).ToWorksets()
+                .Select(w => new { id = w.Id.IntegerValue, nome = w.Name, visivel_padrao = w.IsVisibleByDefault }).ToList();
+            return new { workshared = true, caminho = doc.PathName, worksets, recomendacao = "Não sincronize nem tome posse automaticamente; execute alterações somente com a política de worksets da equipe." };
+        }
+
+        /// <summary>
         /// Configuração única para operações MCP que podem gerar avisos do
         /// Revit. Avisos são registrados no log do documento e descartados para
         /// que uma caixa modal não interrompa uma automação; erros reais seguem
         /// a política normal da transação e retornam à chamada MCP.
         /// </summary>
+        /// <summary>
+        /// Consulta responsável, criador e último autor de um elemento workshared.
+        /// Jamais tenta reservar, editar ou sincronizar o elemento.
+        /// </summary>
+        private static object GetElementWorksharingInfo(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var id = GetElementIdReq(args, "element_id");
+            var element = doc.GetElement(id) ?? throw new ArgumentException($"Elemento {id.Value} não encontrado.");
+            if (!doc.IsWorkshared)
+                return new { workshared = false, id = id.Value, nome = element.Name, recomendacao = "Modelo individual: não há proprietário de worksharing." };
+            var info = WorksharingUtils.GetWorksharingTooltipInfo(doc, id);
+            return new {
+                workshared = true, id = id.Value, nome = element.Name, categoria = element.Category?.Name,
+                criador = info.Creator, proprietario = info.Owner, alterado_por_ultimo = info.LastChangedBy,
+                recomendacao = "Informação somente leitura. Não tome posse automaticamente; respeite o fluxo da equipe."
+            };
+        }
+
         private static void ConfigureAutomaticWarningHandling(Transaction tx)
         {
             var options = tx.GetFailureHandlingOptions();

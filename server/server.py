@@ -305,12 +305,42 @@ async def save_as(path: str) -> dict:
 
 
 @mcp.tool()
-async def delete_element(id: int) -> dict:
+async def delete_element(id: int, confirm: bool = False) -> dict:
     """
-    Exclui um elemento pelo ID.
-    Cuidado: pode remover elementos dependentes (ex: porta na parede).
+    Exclui um elemento pelo ID após confirmação explícita.
+    Primeiro use preview_delete; então chame com confirm=True.
     """
-    return await _rpc("delete_element", id=id)
+    return await _rpc("delete_element", id=id, confirm=confirm)
+
+
+@mcp.tool()
+async def preview_delete(id: int) -> dict:
+    """Lista o elemento e dependentes que seriam removidos; não altera o modelo."""
+    return await _rpc("preview_delete", id=id)
+
+
+@mcp.tool()
+async def backup_document(folder: Optional[str] = None) -> dict:
+    """Salva e cria cópia de restauração do RVT local sem trocar o documento ativo.
+
+    Bloqueado para modelos workshared, que exigem o fluxo central/local da equipe.
+    """
+    args = {}
+    if folder:
+        args["folder"] = folder
+    return await _rpc("backup_document", **args)
+
+
+@mcp.tool()
+async def plan_batch(operations: list) -> dict:
+    """Valida um lote e informa operações permitidas antes de alterar o modelo."""
+    return await _rpc("plan_batch", operations=operations)
+
+
+@mcp.tool()
+async def execute_batch(operations: list, commit: bool = False) -> dict:
+    """Executa lote atômico. Por padrão faz dry-run com rollback; commit=True confirma tudo."""
+    return await _rpc("execute_batch", operations=operations, commit=commit)
 
 
 # =============================================================================
@@ -1171,6 +1201,47 @@ async def validate_document() -> dict:
 
 
 @mcp.tool()
+async def analyze_bim_quality() -> dict:
+    """Audita ambientes, tags, pranchas e paredes duplicadas sem alterar o RVT."""
+    return await _rpc("analyze_bim_quality")
+
+
+@mcp.tool()
+async def validate_room_program(requirements: list) -> dict:
+    """Valida programa de ambientes sem presumir norma local.
+
+    Cada regra contém name_contains, count_min (padrão 1), min_area_m2 (padrão 0)
+    e label opcional. Ex.: [{"name_contains":"quarto", "count_min":3,
+    "min_area_m2":8.0}]. Não altera o modelo.
+    """
+    return await _rpc("validate_room_program", requirements=requirements)
+
+
+@mcp.tool()
+async def audit_documentation() -> dict:
+    """Revisa pranchas, viewports, vistas imprimíveis sem prancha e números duplicados."""
+    return await _rpc("audit_documentation")
+
+
+@mcp.tool()
+async def get_worksharing_status() -> dict:
+    """Informa se o modelo usa worksharing e lista worksets sem tomar posse nem sincronizar."""
+    return await _rpc("get_worksharing_status")
+
+
+@mcp.tool()
+async def get_element_worksharing_info(element_id: int) -> dict:
+    """Consulta criador, proprietário e último editor no worksharing; somente leitura."""
+    return await _rpc("get_element_worksharing_info", element_id=element_id)
+
+
+@mcp.tool()
+async def list_audit_log(limit: int = 50) -> dict:
+    """Lista trilha persistente de operações de escrita realizadas pelo MCP no RVT."""
+    return await _rpc("list_audit_log", limit=limit)
+
+
+@mcp.tool()
 async def create_filled_region(x1_m: float, y1_m: float, x2_m: float, y2_m: float) -> dict:
     """Cria região preenchida (hachura) num retângulo na vista ativa."""
     return await _rpc("create_filled_region", x1_m=x1_m, y1_m=y1_m, x2_m=x2_m, y2_m=y2_m)
@@ -1381,10 +1452,13 @@ async def export_dwg(folder: Optional[str] = None, name: str = "export_mcp.dwg")
     return await _rpc("export_dwg", **args)
 
 @mcp.tool()
-async def export_ifc(folder: Optional[str] = None, name: str = "export_mcp.ifc") -> dict:
-    """Exporta o modelo para IFC."""
-    args = {"name": name}
+async def export_ifc(folder: Optional[str] = None, name: str = "export_mcp.ifc",
+                     profile: str = "coordination", base_quantities: bool = True,
+                     space_boundaries: Optional[int] = None) -> dict:
+    """Exporta IFC com perfil coordination, architecture ou quantities e property sets BIM."""
+    args = {"name": name, "profile": profile, "base_quantities": base_quantities}
     if folder: args["folder"] = folder
+    if space_boundaries is not None: args["space_boundaries"] = space_boundaries
     return await _rpc("export_ifc", **args)
 
 

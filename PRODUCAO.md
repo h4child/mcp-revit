@@ -13,11 +13,15 @@ Execute `reload-revit-mcp.ps1` para compilar, assinar e abrir o Revit com o comp
 ## Operação segura
 
 1. Execute `bridge_health` antes de qualquer lote.
-2. Após mudanças, execute `validate_document` e `list_model_warnings`.
-3. Só então execute `save_document`.
-4. Para alterar o destino, use `save_as` conscientemente.
+2. Execute `plan_batch`; use `execute_batch` sem `commit` para simular e só então confirme o lote.
+3. Antes de exclusões, execute `preview_delete`; `delete_element` exige `confirm=true`.
+4. Após mudanças, execute `validate_document`, `analyze_bim_quality`, `validate_room_program`, `audit_documentation` e `list_model_warnings`.
+5. Só então execute `save_document`. Para modelos individuais, `backup_document` cria um ponto de restauração antes de lotes relevantes.
+6. Para alterar o destino, use `save_as` conscientemente.
 
-O bridge limita requisições a 1 MB, identifica falhas por `request_id` e não expõe stack traces quando `development_mode` é falso. Os logs ficam em `%TEMP%\revit_mcp.log` e ao lado da DLL do complemento.
+O bridge limita requisições a 1 MB, identifica falhas por `request_id` e não expõe stack traces quando `development_mode` é falso. Os logs ficam em `%LOCALAPPDATA%\RevitMcp\logs`.
+
+As operações de escrita são registradas no próprio RVT por Extensible Storage. Use `list_audit_log` para inspecionar data, usuário, comando e resultado. `validate_room_program` recebe as áreas mínimas e quantidades definidas para cada contrato, sem alegar atender uma legislação local. `audit_documentation` aponta vistas imprimíveis fora de prancha. Em modelos workshared, `get_worksharing_status` e `get_element_worksharing_info` são somente leitura: o MCP não toma posse nem sincroniza automaticamente.
 
 ## Recuperação
 

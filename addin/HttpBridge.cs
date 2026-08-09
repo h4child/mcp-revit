@@ -71,10 +71,17 @@ namespace RevitMcp
         {
             try
             {
-                var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "revit_mcp_bridge.log");
+                var path = Path.Combine(LogDirectory(), "revit_mcp_bridge.log");
                 File.AppendAllText(path, DateTime.Now.ToString("s") + " " + message + Environment.NewLine);
             }
             catch { }
+        }
+
+        private static string LogDirectory()
+        {
+            var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RevitMcp", "logs");
+            Directory.CreateDirectory(directory);
+            return directory;
         }
 
         // =====================================================================
@@ -273,7 +280,7 @@ namespace RevitMcp
         {
             try
             {
-                var path = Path.Combine(Path.GetTempPath(), "revit_mcp.log");
+                var path = Path.Combine(LogDirectory(), "revit_mcp.log");
                 lock (_logLock)
                 {
                     File.AppendAllText(path,

@@ -19,6 +19,7 @@ Servidor Python (FastMCP) ── token local ──► Add-in .NET no Revit
 - Gera vistas, cortes, cotas, pranchas, tabelas, screenshots e exportações.
 - Trabalha em metros, valida o documento e identifica avisos do Revit.
 - Protege o bridge local com token, limite de payload, logs e timeout seguro.
+- Oferece lote atômico com dry-run, prévia obrigatória de exclusões, backup local, auditoria persistente, perfis IFC e verificações de programa, emissão e worksharing somente-leitura.
 
 > O MCP é uma ferramenta de automação. A validação de normas, compatibilização, quantitativos e responsabilidade técnica continuam exigindo revisão profissional humana.
 
