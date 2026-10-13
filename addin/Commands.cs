@@ -781,17 +781,31 @@ namespace RevitMcp
             var fi = el as FamilyInstance;
             var levelId = el.LevelId;
 
-            var parametros = el.Parameters.Cast<Parameter>()
-                .Where(p => p.Definition != null)
-                .Select(p => new
+            // Importante: iterar ParameterSet via foreach simples. Encadear LINQ
+            // (Cast/Where/Select) diretamente sobre ParameterSet já causou uma
+            // falha nativa fatal (access violation) que derrubou o Revit sem
+            // gerar exceção .NET capturável. Cada parâmetro também é lido
+            // isoladamente em try/catch, pois um único parâmetro corrompido não
+            // deve comprometer a leitura dos demais.
+            var parametros = new List<object>();
+            foreach (Parameter p in el.Parameters)
+            {
+                if (p?.Definition == null) continue;
+                try
                 {
-                    nome = p.Definition.Name,
-                    valor = p.AsValueString() ?? (p.StorageType == StorageType.String ? p.AsString() : null),
-                    tipo_armazenamento = p.StorageType.ToString(),
-                    somente_leitura = p.IsReadOnly
-                })
-                .OrderBy(p => p.nome)
-                .ToList();
+                    string valor = p.AsValueString();
+                    if (valor == null && p.StorageType == StorageType.String) valor = p.AsString();
+                    parametros.Add(new
+                    {
+                        nome = p.Definition.Name,
+                        valor,
+                        tipo_armazenamento = p.StorageType.ToString(),
+                        somente_leitura = p.IsReadOnly
+                    });
+                }
+                catch { }
+            }
+            parametros = parametros.OrderBy(x => ((dynamic)x).nome).ToList();
 
             return new
             {
