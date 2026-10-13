@@ -121,6 +121,7 @@ namespace RevitMcp
                     case "list_categories": return ListCategories(uiApp);
                     case "list_levels":     return ListLevels(uiApp);
                     case "list_walls":      return ListWalls(uiApp);
+                    case "list_windows":    return ListWindows(uiApp);
                     case "list_wall_types": return ListWallTypes(uiApp);
                     case "list_floor_types":return ListFloorTypes(uiApp);
                     case "list_families":   return ListFamilies(uiApp, req.args);
@@ -144,9 +145,11 @@ namespace RevitMcp
                     case "create_box":      return CreateBox(uiApp, req.args);
                     case "create_door":     return CreateDoor(uiApp, req.args);
                     case "create_window":   return CreateWindow(uiApp, req.args);
+                    case "resize_window":   return ResizeWindow(uiApp, req.args);
                     case "place_rooms":     return PlaceRooms(uiApp);
                     case "place_rooms_at":  return PlaceRoomsAt(uiApp, req.args);
                     case "place_furniture": return PlaceFurniture(uiApp, req.args);
+                    case "place_blocks":    return PlaceFurnitureBlocks(uiApp, req.args);
                     case "load_family":     return LoadFamily(uiApp, req.args);
                     case "create_furniture_family": return CreateFurnitureFamily(uiApp, req.args);
                     case "place_family_instance": return PlaceFamilyInstance(uiApp, req.args);
@@ -169,6 +172,7 @@ namespace RevitMcp
 
                     // --- Visualização ---
                     case "zoom_fit":        return ZoomFit(uiApp);
+                    case "focus_element":   return FocusElement(uiApp, req.args);
                     case "set_view_3d":     return SetView3D(uiApp);
                     case "set_view_shaded": return SetViewShaded(uiApp);
                     case "set_view_plan":   return SetViewPlan(uiApp, req.args);
@@ -330,6 +334,9 @@ namespace RevitMcp
         /// <summary>Converte pés (unidade interna do Revit) para metros.</summary>
         private static double FtToM(double feet) => feet * 0.3048;
 
+        /// <summary>Converte pés quadrados (unidade interna de área do Revit, ex: Room.Area) para m².</summary>
+        private static double SqFtToM2(double sqFeet) => sqFeet * 0.3048 * 0.3048;
+
         /// <summary>
         /// Obtém o Document ativo ou lança exceção com mensagem amigável.
         /// </summary>
@@ -377,6 +384,16 @@ namespace RevitMcp
                 item.TryGetProperty(key, out var v) &&
                 v.ValueKind == JsonValueKind.Number)
                 return v.GetDouble();
+            return fallback;
+        }
+
+        /// <summary>Lê um bool de um sub-objeto JSON (para arrays de itens).</summary>
+        private static bool GetItemBool(JsonElement item, string key, bool fallback)
+        {
+            if (item.ValueKind == JsonValueKind.Object &&
+                item.TryGetProperty(key, out var v) &&
+                (v.ValueKind == JsonValueKind.True || v.ValueKind == JsonValueKind.False))
+                return v.GetBoolean();
             return fallback;
         }
 
@@ -558,6 +575,35 @@ namespace RevitMcp
                         ? Math.Round(FtToM(lc.Curve.Length), 3)
                         : 0.0
                 })
+                .ToList();
+        }
+
+        /// <summary>Lista instâncias de janela e suas dimensões atuais.</summary>
+        private static object ListWindows(UIApplication uiApp)
+        {
+            var doc = RequireDoc(uiApp);
+            return new FilteredElementCollector(doc)
+                .OfCategory(BuiltInCategory.OST_Windows)
+                .WhereElementIsNotElementType()
+                .OfType<FamilyInstance>()
+                .Select(w =>
+                {
+                    var type = w.Symbol;
+                    var width = type?.get_Parameter(BuiltInParameter.WINDOW_WIDTH)?.AsDouble();
+                    var height = type?.get_Parameter(BuiltInParameter.WINDOW_HEIGHT)?.AsDouble();
+                    var sill = w.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)?.AsDouble();
+                    return new
+                    {
+                        id = w.Id.Value,
+                        familia = type?.Family?.Name,
+                        tipo = type?.Name,
+                        nivel = (doc.GetElement(w.LevelId) as Level)?.Name,
+                        largura_m = width.HasValue ? Math.Round(FtToM(width.Value), 3) : (double?)null,
+                        altura_m = height.HasValue ? Math.Round(FtToM(height.Value), 3) : (double?)null,
+                        peitoril_m = sill.HasValue ? Math.Round(FtToM(sill.Value), 3) : (double?)null
+                    };
+                })
+                .OrderBy(w => w.nivel).ThenBy(w => w.id)
                 .ToList();
         }
 
@@ -1094,14 +1140,25 @@ namespace RevitMcp
                 string key = GetS(item, "wall_key");
                 if (string.IsNullOrEmpty(key) || !walls.TryGetValue(key, out var wall))
                     throw new ArgumentException($"{property}: wall_key '{key}' não encontrado.");
-                var symbol = FindSymbol(doc, category, GetS(item, "family")) ?? throw new Exception($"Nenhuma família carregada para {property}.");
+                string kind = GetS(item, "kind");
+                double width = GetItemD(item, "width_m", double.NaN);
+                double height = GetItemD(item, "height_m", double.NaN);
+                double sill = GetItemD(item, "sill_m", defaultSill);
+                string preset = category == BuiltInCategory.OST_Windows
+                    ? ApplyWindowPreset(kind, ref width, ref height, ref sill) : null;
+                var symbol = category == BuiltInCategory.OST_Windows
+                    ? FindWindowSymbol(doc, GetS(item, "family"), GetS(item, "type"), kind)
+                    : FindSymbol(doc, category, GetS(item, "family"), GetS(item, "type"));
+                if (symbol == null) throw new Exception($"Nenhuma família carregada para {property}.");
+                if (category == BuiltInCategory.OST_Windows)
+                    symbol = ResolveWindowSize(doc, symbol, width, height, preset, out _);
                 if (!symbol.IsActive) { symbol.Activate(); doc.Regenerate(); }
                 var curve = (wall.Location as LocationCurve)?.Curve ?? throw new Exception("Parede sem curva de localização.");
                 var point = curve.Evaluate(Math.Clamp(GetItemD(item, "position", 0.5), 0, 1), true);
                 var instance = doc.Create.NewFamilyInstance(point, symbol, wall, level,
                     Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
                 if (!double.IsNaN(defaultSill))
-                    instance.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)?.Set(MToFt(GetItemD(item, "sill_m", defaultSill)));
+                    instance.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)?.Set(MToFt(sill));
                 createdIds.Add(instance.Id.Value);
             }
         }
@@ -1162,10 +1219,79 @@ namespace RevitMcp
 
         /// <summary>
         /// Cria uma janela em uma parede existente.
-        /// Aceita sill_m (altura do peitoril, padrão 1m).
+        /// Aceita sill_m (altura do peitoril, padrão 1m), width_m e height_m.
+        /// As dimensões criam ou reutilizam um tipo MCP sem alterar os tipos originais.
         /// </summary>
         private static object CreateWindow(UIApplication uiApp, JsonElement args)
             => CreateHostedInstance(uiApp, args, BuiltInCategory.OST_Windows, "MCP: Criar janela");
+
+        /// <summary>
+        /// Redimensiona uma janela existente trocando apenas a sua instância
+        /// para um tipo MCP dedicado. Não modifica as demais janelas do projeto.
+        /// </summary>
+        private static object ResizeWindow(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var id = GetElementIdReq(args, "window_id");
+            var window = doc.GetElement(id) as FamilyInstance;
+            if (window?.Category?.Id.Value != (long)BuiltInCategory.OST_Windows)
+                throw new ArgumentException($"Elemento {id.Value} não é uma janela.");
+
+            double width = GetD(args, "width_m", double.NaN);
+            double height = GetD(args, "height_m", double.NaN);
+            double sill = GetD(args, "sill_m", double.NaN);
+            string kind = GetS(args, "kind", "generica");
+            string requestedFamily = GetS(args, "family");
+            string requestedType = GetS(args, "type");
+            bool useExistingType = !string.IsNullOrEmpty(requestedType);
+            string preset = useExistingType ? null : ApplyWindowPreset(kind, ref width, ref height, ref sill);
+            if (!useExistingType && double.IsNaN(width) && double.IsNaN(height))
+                throw new ArgumentException("Informe width_m, height_m ou um perfil kind válido.");
+
+            object result;
+            using (var tx = new Transaction(doc, "MCP: Redimensionar janela"))
+            {
+                tx.Start();
+                var options = tx.GetFailureHandlingOptions();
+                options.SetFailuresPreprocessor(new McpWarningPreprocessor());
+                options.SetClearAfterRollback(true);
+                tx.SetFailureHandlingOptions(options);
+
+                FamilySymbol symbol;
+                string sizing;
+                if (useExistingType)
+                {
+                    string family = string.IsNullOrEmpty(requestedFamily) ? window.Symbol.Family.Name : requestedFamily;
+                    symbol = FindSymbol(doc, BuiltInCategory.OST_Windows, family, requestedType)
+                        ?? throw new ArgumentException($"Tipo de janela '{requestedType}' não encontrado na família '{family}'.");
+                    sizing = "tipo de janela existente aplicado";
+                }
+                else
+                    symbol = ResolveWindowSize(doc, window.Symbol, width, height, preset, out sizing);
+                if (!symbol.IsActive) { symbol.Activate(); doc.Regenerate(); }
+                if (window.GetTypeId() != symbol.Id) window.ChangeTypeId(symbol.Id);
+                if (!double.IsNaN(sill))
+                    window.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)?.Set(MToFt(sill));
+
+                double? finalWidth = symbol.get_Parameter(BuiltInParameter.WINDOW_WIDTH)?.AsDouble();
+                double? finalHeight = symbol.get_Parameter(BuiltInParameter.WINDOW_HEIGHT)?.AsDouble();
+                double? finalSill = window.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)?.AsDouble();
+
+                result = new
+                {
+                    id = window.Id.Value,
+                    familia = symbol.Family.Name,
+                    tipo = symbol.Name,
+                    perfil = preset,
+                    largura_m = finalWidth.HasValue ? Math.Round(FtToM(finalWidth.Value), 3) : (double?)null,
+                    altura_m = finalHeight.HasValue ? Math.Round(FtToM(finalHeight.Value), 3) : (double?)null,
+                    peitoril_m = finalSill.HasValue ? Math.Round(FtToM(finalSill.Value), 3) : (double?)null,
+                    dimensoes = sizing
+                };
+                tx.Commit();
+            }
+            return result;
+        }
 
         /// <summary>
         /// Método compartilhado para criar portas e janelas.
@@ -1179,6 +1305,13 @@ namespace RevitMcp
             long wallId = (long)GetDReq(args, "wall_id");
             double sill = GetD(args, "sill_m", double.NaN);
             string family = GetS(args, "family");
+            string type = GetS(args, "type");
+            string kind = GetS(args, "kind");
+            double width = GetD(args, "width_m", double.NaN);
+            double height = GetD(args, "height_m", double.NaN);
+            string preset = cat == BuiltInCategory.OST_Windows
+                ? ApplyWindowPreset(kind, ref width, ref height, ref sill) : null;
+            if (cat == BuiltInCategory.OST_Windows && double.IsNaN(sill)) sill = 1.0;
 
             var wall = doc.GetElement(new ElementId(wallId)) as Wall
                 ?? throw new Exception($"Parede com ID {wallId} não encontrada.");
@@ -1201,7 +1334,9 @@ namespace RevitMcp
                 y = GetDReq(args, "y_m");
             }
 
-            var sym = FindSymbol(doc, cat, family)
+            var sym = (cat == BuiltInCategory.OST_Windows
+                    ? FindWindowSymbol(doc, family, type, kind)
+                    : FindSymbol(doc, cat, family, type))
                 ?? throw new Exception(
                     $"Nenhuma família de {(cat == BuiltInCategory.OST_Doors ? "portas" : "janelas")} " +
                     "carregada neste projeto. Use Inserir > Carregar Família no Revit.");
@@ -1214,6 +1349,10 @@ namespace RevitMcp
                 failureOptions.SetFailuresPreprocessor(new McpWarningPreprocessor());
                 failureOptions.SetClearAfterRollback(true);
                 tx.SetFailureHandlingOptions(failureOptions);
+
+                string sizing = null;
+                if (cat == BuiltInCategory.OST_Windows)
+                    sym = ResolveWindowSize(doc, sym, width, height, preset, out sizing);
 
                 // Ativa o tipo se necessário (exigido pelo Revit)
                 if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
@@ -1236,7 +1375,12 @@ namespace RevitMcp
                 {
                     id = inst.Id.Value,
                     familia = sym.Family.Name,
-                    tipo = sym.Name
+                    tipo = sym.Name,
+                    largura_m = double.IsNaN(width) ? (double?)null : width,
+                    altura_m = double.IsNaN(height) ? (double?)null : height,
+                    perfil = preset,
+                    peitoril_m = double.IsNaN(sill) ? (double?)null : sill,
+                    dimensoes = sizing
                 };
                 tx.Commit();
             }
@@ -1244,11 +1388,11 @@ namespace RevitMcp
         }
 
         /// <summary>
-        /// Encontra um FamilySymbol por categoria e nome parcial da família.
+        /// Encontra um FamilySymbol por categoria e nome parcial da família/tipo.
         /// Se nome não for informado, retorna o primeiro disponível.
         /// </summary>
         private static FamilySymbol FindSymbol(
-            Document doc, BuiltInCategory cat, string familyContains)
+            Document doc, BuiltInCategory cat, string familyContains, string typeContains = null)
         {
             var all = new FilteredElementCollector(doc)
                 .OfCategory(cat)
@@ -1260,12 +1404,149 @@ namespace RevitMcp
 
             if (!string.IsNullOrEmpty(familyContains))
             {
+                all = all.Where(s =>
+                    s.Family.Name.IndexOf(familyContains, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+                if (all.Count == 0) return null;
+            }
+
+            if (!string.IsNullOrEmpty(typeContains))
+            {
                 var hit = all.FirstOrDefault(s =>
-                    s.Family.Name.IndexOf(familyContains, StringComparison.OrdinalIgnoreCase) >= 0);
+                    s.Name.IndexOf(typeContains, StringComparison.OrdinalIgnoreCase) >= 0);
                 if (hit != null) return hit;
             }
 
             return all.First();
+        }
+
+        /// <summary>
+        /// Define medidas usuais por ambiente. Valores enviados explicitamente
+        /// pelo cliente sempre têm prioridade sobre o perfil.
+        /// </summary>
+        private static string ApplyWindowPreset(string kind, ref double widthM, ref double heightM, ref double sillM)
+        {
+            string normalized = (kind ?? "").Trim().ToLowerInvariant();
+            double defaultWidth = double.NaN, defaultHeight = double.NaN, defaultSill = double.NaN;
+            string label = null;
+            switch (normalized)
+            {
+                case "generic": case "generica": case "genérica": case "custom":
+                    label = "generica"; defaultWidth = 1.20; defaultHeight = 1.20; defaultSill = 1.00; break;
+                case "bedroom": case "quarto": case "dormitorio": case "dormitório":
+                    label = "quarto"; defaultWidth = 1.50; defaultHeight = 1.20; defaultSill = 1.10; break;
+                case "bathroom": case "banheiro": case "lavabo": case "wc":
+                    label = "banheiro"; defaultWidth = 0.60; defaultHeight = 0.60; defaultSill = 1.60; break;
+                case "living": case "sala": case "estar":
+                    label = "sala"; defaultWidth = 2.40; defaultHeight = 1.50; defaultSill = 0.60; break;
+                case "kitchen": case "cozinha":
+                    label = "cozinha"; defaultWidth = 1.20; defaultHeight = 1.00; defaultSill = 1.20; break;
+                case "laundry": case "lavanderia": case "lavandaria":
+                    label = "lavanderia"; defaultWidth = 0.80; defaultHeight = 0.80; defaultSill = 1.50; break;
+                case "closet":
+                    label = "closet"; defaultWidth = 0.80; defaultHeight = 0.80; defaultSill = 1.50; break;
+            }
+            if (label == null) return null;
+            if (double.IsNaN(widthM)) widthM = defaultWidth;
+            if (double.IsNaN(heightM)) heightM = defaultHeight;
+            if (double.IsNaN(sillM)) sillM = defaultSill;
+            return label;
+        }
+
+        /// <summary>
+        /// Quando existirem famílias adequadas carregadas, prefere uma tipologia
+        /// compatível (por exemplo basculante para banheiro). Sem uma família
+        /// específica, a geometria e o peitoril do perfil continuam sendo usados.
+        /// </summary>
+        private static FamilySymbol FindWindowSymbol(Document doc, string familyContains, string typeContains, string kind)
+        {
+            if (!string.IsNullOrEmpty(familyContains) || !string.IsNullOrEmpty(typeContains))
+                return FindSymbol(doc, BuiltInCategory.OST_Windows, familyContains, typeContains);
+
+            string normalized = (kind ?? "").Trim().ToLowerInvariant();
+            string[] hints = normalized == "bathroom" || normalized == "banheiro" || normalized == "lavabo" || normalized == "wc"
+                ? new[] { "basculante", "maxim", "awning", "bath" }
+                : normalized == "bedroom" || normalized == "quarto" || normalized == "dormitorio" || normalized == "dormitório"
+                    ? new[] { "veneziana", "casement", "sliding", "quarto" }
+                    : normalized == "living" || normalized == "sala" || normalized == "estar"
+                        ? new[] { "sliding", "fixed", "picture", "panoramic" }
+                        : Array.Empty<string>();
+            if (hints.Length > 0)
+            {
+                var match = new FilteredElementCollector(doc)
+                    .OfCategory(BuiltInCategory.OST_Windows).OfClass(typeof(FamilySymbol))
+                    .Cast<FamilySymbol>()
+                    .FirstOrDefault(s => hints.Any(h => (s.Family.Name + " " + s.Name)
+                        .IndexOf(h, StringComparison.OrdinalIgnoreCase) >= 0));
+                if (match != null) return match;
+            }
+            return FindSymbol(doc, BuiltInCategory.OST_Windows, null, null);
+        }
+
+        /// <summary>
+        /// Cria (ou reutiliza) um tipo de janela com a dimensão solicitada. Os
+        /// parâmetros são de tipo na maioria das famílias, portanto duplicamos o
+        /// tipo base para não redimensionar janelas já existentes no projeto.
+        /// </summary>
+        private static FamilySymbol ResolveWindowSize(Document doc, FamilySymbol baseSymbol,
+            double widthM, double heightM, string preset, out string result)
+        {
+            result = null;
+            if (double.IsNaN(widthM) && double.IsNaN(heightM)) return baseSymbol;
+            if (!double.IsNaN(widthM) && widthM <= 0)
+                throw new ArgumentException("width_m deve ser maior que zero.");
+            if (!double.IsNaN(heightM) && heightM <= 0)
+                throw new ArgumentException("height_m deve ser maior que zero.");
+
+            string widthLabel = double.IsNaN(widthM) ? "auto" : Math.Round(widthM * 1000).ToString("0") + "mm";
+            string heightLabel = double.IsNaN(heightM) ? "auto" : Math.Round(heightM * 1000).ToString("0") + "mm";
+            string prefix = string.IsNullOrEmpty(preset) ? "" : " - " + preset.ToUpperInvariant();
+            string typeName = $"{baseSymbol.Name}{prefix} - MCP {widthLabel} x {heightLabel}";
+
+            var existing = baseSymbol.Family.GetFamilySymbolIds()
+                .Select(id => doc.GetElement(id) as FamilySymbol)
+                .FirstOrDefault(s => s != null && s.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+            {
+                result = "tipo MCP existente reutilizado";
+                return existing;
+            }
+
+            var sized = baseSymbol.Duplicate(typeName) as FamilySymbol;
+            if (sized == null)
+                throw new Exception("Não foi possível duplicar o tipo de janela.");
+
+            bool widthApplied = double.IsNaN(widthM) || TrySetWindowLength(sized,
+                BuiltInParameter.WINDOW_WIDTH, new[] { "Width", "Largura" }, MToFt(widthM));
+            bool heightApplied = double.IsNaN(heightM) || TrySetWindowLength(sized,
+                BuiltInParameter.WINDOW_HEIGHT, new[] { "Height", "Altura" }, MToFt(heightM));
+
+            if (!widthApplied && !heightApplied)
+            {
+                doc.Delete(sized.Id);
+                result = "a família não expõe parâmetros editáveis de largura/altura; usado o tipo original";
+                return baseSymbol;
+            }
+
+            var pending = new List<string>();
+            if (!widthApplied) pending.Add("largura");
+            if (!heightApplied) pending.Add("altura");
+            result = pending.Count == 0
+                ? "dimensões aplicadas em tipo MCP dedicado"
+                : "tipo MCP criado; parâmetro sem edição: " + string.Join(", ", pending);
+            return sized;
+        }
+
+        private static bool TrySetWindowLength(FamilySymbol symbol, BuiltInParameter builtIn,
+            IEnumerable<string> displayNames, double valueFt)
+        {
+            var candidates = new List<Parameter> { symbol.get_Parameter(builtIn) };
+            candidates.AddRange(displayNames.Select(symbol.LookupParameter));
+            foreach (var parameter in candidates.Where(p => p != null).Distinct())
+            {
+                if (parameter.IsReadOnly || parameter.StorageType != StorageType.Double) continue;
+                if (parameter.Set(valueFt)) return true;
+            }
+            return false;
         }
 
         // =====================================================================
@@ -1541,11 +1822,58 @@ namespace RevitMcp
         }
 
         /// <summary>
-        /// Coloca móveis como caixas 3D (DirectShape) nos cômodos.
-        /// Cada item: { name, x, y, w, d, h } em metros.
-        ///
-        /// Usa a categoria OST_Furniture para garantir visibilidade
-        /// em vistas de planta e 3D do template arquitetônico.
+        /// Coloca mobiliario como simbolos 2D na vista ativa.
+        /// Cada item: { name, x, y, w, d, h, rotation } em metros.
+        /// O desenho usa apenas linhas de detalhe para ficar visivel em planta
+        /// sem depender de familias externas carregadas.
+        /// </summary>
+        private static object PlaceFurnitureBlocks(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var view = uiApp.ActiveUIDocument?.ActiveView ?? throw new Exception("Nenhuma vista ativa.");
+            if (!args.TryGetProperty("items", out var arr) || arr.ValueKind != JsonValueKind.Array)
+                throw new ArgumentException("Array 'items' e obrigatorio");
+
+            var placed = new List<object>();
+            var errors = new List<string>();
+
+            using (var tx = new Transaction(doc, "MCP: Blocos de mobiliario"))
+            {
+                tx.Start();
+                ConfigureAutomaticWarningHandling(tx);
+                int index = 0;
+                foreach (var item in arr.EnumerateArray())
+                {
+                    try
+                    {
+                        string name = GetS(item, "name", "Mobiliario");
+                        double x = GetItemD(item, "x", 0);
+                        double y = GetItemD(item, "y", 0);
+                        double w = Math.Max(GetItemD(item, "w", 1), 0.1);
+                        double d = Math.Max(GetItemD(item, "d", 1), 0.1);
+                        double rotation = GetItemD(item, "rotation", 0);
+                        bool label = GetItemBool(item, "label", false);
+
+                        var ids = CreateFurnitureBlock(doc, view, name, x, y, w, d, rotation, label);
+                        placed.Add(new { nome = name, ids });
+                    }
+                    catch (Exception ex)
+                    {
+                        string itemName = $"item {index}";
+                        if (item.TryGetProperty("name", out var nv))
+                            itemName = nv.GetString() ?? itemName;
+                        errors.Add($"{itemName}: {ex.Message}");
+                    }
+                    index++;
+                }
+                tx.Commit();
+            }
+
+            return new { quantidade = placed.Count, blocos = placed, erros = errors };
+        }
+
+        /// <summary>
+        /// Mantem a assinatura antiga, mas agora desenha blocos 2D em planta.
         /// </summary>
         /// <summary>Insere uma família já carregada por categoria, nome e tipo opcionais.</summary>
         private static object PlaceComponent(UIApplication uiApp, JsonElement args)
@@ -1593,63 +1921,7 @@ namespace RevitMcp
 
         private static object PlaceFurniture(UIApplication uiApp, JsonElement args)
         {
-            var doc = RequireDoc(uiApp);
-            if (!args.TryGetProperty("items", out var arr) || arr.ValueKind != JsonValueKind.Array)
-                throw new ArgumentException("Array 'items' é obrigatório");
-
-            var level = FindLevel(doc, GetS(args, "level"))
-                ?? throw new Exception("Nenhum nível encontrado.");
-
-            var placed = new List<object>();
-            var errors = new List<string>();
-
-            using (var tx = new Transaction(doc, "MCP: Colocar móveis"))
-            {
-                tx.Start();
-                ConfigureAutomaticWarningHandling(tx);
-                foreach (var item in arr.EnumerateArray())
-                {
-                    try
-                    {
-                        string name = item.GetProperty("name").GetString();
-                        double x = GetItemD(item, "x", 0);
-                        double y = GetItemD(item, "y", 0);
-                        double w = GetItemD(item, "w", 1);
-                        double d = GetItemD(item, "d", 1);
-                        double h = GetItemD(item, "h", 1);
-                        double rotation = GetItemD(item, "rotation", 0);
-
-                        var shape = CreateFurnitureBox(
-                            doc, x, y, w, d, h, level.Elevation, name);
-
-                        if (shape != null)
-                        {
-                            if (Math.Abs(rotation) > 1e-6)
-                            {
-                                var center = new XYZ(MToFt(x + w / 2), MToFt(y + d / 2), level.Elevation);
-                                var axis = Line.CreateBound(center, center + XYZ.BasisZ);
-                                ElementTransformUtils.RotateElement(doc, shape.Id, axis, rotation * Math.PI / 180.0);
-                            }
-                            placed.Add(new { id = shape.Id.Value, nome = name, x, y, w, d, h, rotation });
-                        }
-                        else
-                            errors.Add($"{name}: falha ao criar forma");
-                    }
-                    catch (Exception ex)
-                    {
-                        string itemName = "?";
-                        if (item.TryGetProperty("name", out var nv))
-                            itemName = nv.GetString() ?? "?";
-                        errors.Add($"{itemName}: {ex.Message}");
-                    }
-                }
-                tx.Commit();
-            }
-
-            // Força visibilidade da categoria Mobiliário na vista ativa
-            try { ForceShowFurniture(doc, uiApp.ActiveUIDocument); } catch { }
-
-            return new { quantidade = placed.Count, moveis = placed, erros = errors };
+            return PlaceFurnitureBlocks(uiApp, args);
         }
 
         /// <summary>
@@ -1690,70 +1962,105 @@ namespace RevitMcp
         }
 
         /// <summary>
-        /// Cria uma caixa 3D (DirectShape) representando um móvel.
-        /// Usa GeometryCreationUtilities para criar um sólido por extrusão.
-        ///
-        /// A categoria OST_Furniture (Mobiliário) é visível por padrão
-        /// nas vistas de planta dos templates arquitetônicos brasileiros.
+        /// Cria um bloco 2D moderno em planta baixa usando apenas linhas de detalhe.
+        /// A geometria e rotacionada no proprio desenho, sem depender de familia externa.
         /// </summary>
-        private static DirectShape CreateFurnitureBox(
+        private static IReadOnlyList<long> CreateFurnitureBlock(
             Document doc,
-            double xM, double yM, double wM, double dM, double hM,
-            double baseElevFt, string name)
+            View view,
+            string name,
+            double xM, double yM, double wM, double dM,
+            double rotationDeg,
+            bool label)
         {
-            double xFt = MToFt(xM);
-            double yFt = MToFt(yM);
-            double wFt = MToFt(wM);
-            double dFt = MToFt(dM);
-            double hFt = MToFt(hM);
+            double theta = rotationDeg * Math.PI / 180.0;
+            XYZ center = new XYZ(MToFt(xM + wM / 2.0), MToFt(yM + dM / 2.0), 0);
 
-            // Perfil retangular no plano XY (base do móvel)
-            var profile = new List<Curve>
+            XYZ RotatePt(double px, double py)
             {
-                Line.CreateBound(new XYZ(xFt,       yFt,       0), new XYZ(xFt + wFt, yFt,       0)),
-                Line.CreateBound(new XYZ(xFt + wFt, yFt,       0), new XYZ(xFt + wFt, yFt + dFt, 0)),
-                Line.CreateBound(new XYZ(xFt + wFt, yFt + dFt, 0), new XYZ(xFt,       yFt + dFt, 0)),
-                Line.CreateBound(new XYZ(xFt,       yFt + dFt, 0), new XYZ(xFt,       yFt,       0)),
-            };
-            var loop = CurveLoop.Create(profile);
-
-            // Extrusão vertical (de 0 até a altura do móvel)
-            var solid = GeometryCreationUtilities.CreateExtrusionGeometry(
-                new List<CurveLoop> { loop },
-                XYZ.BasisZ,
-                hFt);
-
-            // Translação vertical para a elevação do nível
-            if (Math.Abs(baseElevFt) > 1e-9)
-            {
-                var transform = Transform.CreateTranslation(new XYZ(0, 0, baseElevFt));
-                solid = SolidUtils.CreateTransformed(solid, transform);
+                double x = MToFt(px);
+                double y = MToFt(py);
+                double dx = x - center.X;
+                double dy = y - center.Y;
+                return new XYZ(
+                    center.X + dx * Math.Cos(theta) - dy * Math.Sin(theta),
+                    center.Y + dx * Math.Sin(theta) + dy * Math.Cos(theta),
+                    0);
             }
 
-            // Cria o DirectShape na categoria Mobiliário
-            var catId = new ElementId(BuiltInCategory.OST_Furniture);
-            var shape = DirectShape.CreateElement(doc, catId);
-            shape.SetShape(new GeometryObject[] { solid });
-            shape.Name = name;
+            var ids = new List<long>();
+            var pts = new[]
+            {
+                RotatePt(xM, yM),
+                RotatePt(xM + wM, yM),
+                RotatePt(xM + wM, yM + dM),
+                RotatePt(xM, yM + dM),
+            };
 
-            return shape;
-        }
+            void AddLine(XYZ a, XYZ b)
+            {
+                if (a.IsAlmostEqualTo(b)) return;
+                ids.Add(doc.Create.NewDetailCurve(view, Line.CreateBound(a, b)).Id.Value);
+            }
 
-        /// <summary>
-        /// Força a visibilidade da categoria Mobiliário (OST_Furniture)
-        /// na vista ativa, caso esteja oculta pelo template de vista.
-        /// </summary>
-        private static void ForceShowFurniture(Document doc, UIDocument uidoc)
-        {
-            if (uidoc == null) return;
-            var view = uidoc.ActiveView;
-            if (view == null || view.IsTemplate) return;
+            // Outline
+            AddLine(pts[0], pts[1]);
+            AddLine(pts[1], pts[2]);
+            AddLine(pts[2], pts[3]);
+            AddLine(pts[3], pts[0]);
 
-            var catId = new ElementId(BuiltInCategory.OST_Furniture);
+            string key = Normalizar(name ?? "");
+            double inset = Math.Max(Math.Min(wM, dM) * 0.12, 0.08);
 
-            // Torna a categoria visível se estiver oculta
-            if (!view.GetCategoryHidden(catId)) return;
-            view.SetCategoryHidden(catId, false);
+            if (key.Contains("sofa") || key.Contains("sof") || key.Contains("couch"))
+            {
+                AddLine(RotatePt(xM + inset, yM + dM - inset), RotatePt(xM + wM - inset, yM + dM - inset));
+                AddLine(RotatePt(xM + inset, yM + inset), RotatePt(xM + inset, yM + dM - inset));
+                AddLine(RotatePt(xM + wM - inset, yM + inset), RotatePt(xM + wM - inset, yM + dM - inset));
+                AddLine(RotatePt(xM + wM * 0.33, yM + inset), RotatePt(xM + wM * 0.33, yM + dM - inset));
+                AddLine(RotatePt(xM + wM * 0.66, yM + inset), RotatePt(xM + wM * 0.66, yM + dM - inset));
+            }
+            else if (key.Contains("mesa de jantar") || key.Contains("dining") || key.Contains("table"))
+            {
+                AddLine(RotatePt(xM + inset, yM + inset), RotatePt(xM + wM - inset, yM + dM - inset));
+                AddLine(RotatePt(xM + inset, yM + dM - inset), RotatePt(xM + wM - inset, yM + inset));
+                AddLine(RotatePt(xM + wM * 0.5, yM + inset), RotatePt(xM + wM * 0.5, yM + dM - inset));
+                AddLine(RotatePt(xM + inset, yM + dM * 0.5), RotatePt(xM + wM - inset, yM + dM * 0.5));
+            }
+            else if (key.Contains("escritorio") || key.Contains("desk") || key.Contains("office"))
+            {
+                AddLine(RotatePt(xM + inset, yM + inset), RotatePt(xM + wM - inset, yM + inset));
+                AddLine(RotatePt(xM + inset, yM + dM - inset), RotatePt(xM + wM * 0.72, yM + dM - inset));
+                AddLine(RotatePt(xM + wM * 0.72, yM + inset), RotatePt(xM + wM * 0.72, yM + dM - inset));
+                AddLine(RotatePt(xM + wM * 0.82, yM + inset), RotatePt(xM + wM * 0.82, yM + dM - inset));
+            }
+            else if (key.Contains("cama") || key.Contains("bed"))
+            {
+                AddLine(RotatePt(xM + inset, yM + dM * 0.22), RotatePt(xM + wM - inset, yM + dM * 0.22));
+                AddLine(RotatePt(xM + inset, yM + dM * 0.78), RotatePt(xM + wM - inset, yM + dM * 0.78));
+                AddLine(RotatePt(xM + inset, yM + dM * 0.22), RotatePt(xM + inset, yM + dM * 0.78));
+                AddLine(RotatePt(xM + wM - inset, yM + dM * 0.22), RotatePt(xM + wM - inset, yM + dM * 0.78));
+            }
+            else
+            {
+                AddLine(RotatePt(xM + inset, yM + inset), RotatePt(xM + wM - inset, yM + dM - inset));
+            }
+
+            if (label)
+            {
+                try
+                {
+                    string txt = name ?? "Mobiliario";
+                    var textType = new FilteredElementCollector(doc).OfClass(typeof(TextNoteType)).FirstElementId();
+                    var pos = new XYZ(center.X, center.Y, 0);
+                    ids.Add(TextNote.Create(doc, view.Id, pos, txt, textType).Id.Value);
+                }
+                catch
+                {
+                }
+            }
+
+            return ids;
         }
 
         // =====================================================================
@@ -1964,15 +2271,14 @@ namespace RevitMcp
                 var roof = doc.Create.NewFootPrintRoof(
                     footprint, roofLevel, roofType, out modelCurves);
 
-                // Define inclinação em cada borda
-                // Slope do Revit: rise/12 (proporção imperial)
-                double slopeVal = Math.Tan(slopeDeg * Math.PI / 180.0) * 12.0;
-                int idx = 0;
+                // SlopeAngle do Revit não é radianos nem graus: é a razão rise/run
+                // (a tangente do ângulo). Ex.: 30° → tan(30°) ≈ 0.577, não 0.5236 rad.
+                // https://blog.autodesk.io/slope-is-slope-not-radians/
+                double slopeRatio = Math.Tan(slopeDeg * Math.PI / 180.0);
                 foreach (ModelCurve mc in modelCurves)
                 {
                     roof.set_DefinesSlope(mc, true);
-                    roof.set_SlopeAngle(mc, slopeDeg * Math.PI / 180.0);
-                    idx++;
+                    roof.set_SlopeAngle(mc, slopeRatio);
                 }
 
                 // Ajusta offset da base do telhado
@@ -2631,7 +2937,7 @@ namespace RevitMcp
                         {
                             id = tag.Id.Value,
                             comodo = comodo.Name,
-                            area_m2 = Math.Round(comodo.Area * 0.3048 * 0.3048, 2)
+                            area_m2 = Math.Round(SqFtToM2(comodo.Area), 2)
                         });
                     }
                     catch (Exception ex)
@@ -3464,6 +3770,19 @@ namespace RevitMcp
                 }
             }
             return new { zoom_ok = false };
+        }
+
+        /// <summary>Seleciona e enquadra um elemento na vista ativa.</summary>
+        private static object FocusElement(UIApplication uiApp, JsonElement args)
+        {
+            var uidoc = uiApp.ActiveUIDocument
+                ?? throw new Exception("Nenhum documento ativo.");
+            var id = GetElementIdReq(args, "element_id");
+            var element = uidoc.Document.GetElement(id)
+                ?? throw new ArgumentException($"Elemento {id.Value} não existe.");
+            uidoc.Selection.SetElementIds(new List<ElementId> { id });
+            uidoc.ShowElements(id);
+            return new { id = id.Value, nome = element.Name, vista = uidoc.ActiveView.Name, focado = true };
         }
 
         /// <summary>
@@ -4726,10 +5045,10 @@ namespace RevitMcp
                     throw new ArgumentException($"requirements[{index - 1}].name_contains é obrigatório.");
 
                 var matches = rooms.Where(r => Normalizar(r.Name ?? "").Contains(Normalizar(nameContains))).ToList();
-                var qualified = matches.Where(r => r.Area > 0 && FtToM(r.Area) >= minArea).ToList();
+                var qualified = matches.Where(r => r.Area > 0 && SqFtToM2(r.Area) >= minArea).ToList();
                 var matchInfo = matches.Select(r => new {
                     id = r.Id.Value, nome = r.Name, numero = r.Number,
-                    area_m2 = Math.Round(FtToM(r.Area), 2), posicionado = r.Area > 0
+                    area_m2 = Math.Round(SqFtToM2(r.Area), 2), posicionado = r.Area > 0
                 }).ToList();
                 bool countOk = matches.Count >= countMin;
                 bool areaOk = qualified.Count >= countMin;

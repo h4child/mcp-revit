@@ -198,6 +198,13 @@ async def list_walls() -> list:
 
 
 @mcp.tool()
+async def list_windows() -> list:
+    """Lista janelas colocadas, com ID, tipo, dimensões e peitoril.
+    Use o ID retornado em resize_window para modificar somente uma janela."""
+    return await _rpc("list_windows")
+
+
+@mcp.tool()
 async def list_families(category: Optional[str] = None) -> list:
     """
     Lista famílias (tipos de elementos) carregadas no projeto.
@@ -505,20 +512,69 @@ async def create_window(
     wall_id: int,
     x_m: float,
     y_m: float,
-    sill_m: float = 1.0,
+    sill_m: Optional[float] = None,
+    width_m: Optional[float] = None,
+    height_m: Optional[float] = None,
+    kind: Optional[str] = None,
     family: Optional[str] = None,
+    type: Optional[str] = None,
 ) -> dict:
     """
     Insere uma janela em uma parede existente.
     wall_id = ID da parede (obtido via list_walls).
     (x_m, y_m) = posição aproximada — o Revit projeta na parede.
-    sill_m = altura do peitoril em metros (padrão: 1m).
+    kind = perfil do ambiente: generica, quarto, banheiro, sala, cozinha,
+        lavanderia ou closet. "generica" cria uma janela neutra e permite
+        definir livremente as medidas. Os demais perfis definem medidas e
+        peitoris adequados quando não forem informados.
+    sill_m = altura do peitoril em metros. Se omitido, o perfil usa o padrão.
+    width_m e height_m = largura e altura em metros. O MCP cria/reutiliza
+        um tipo dedicado, sem modificar as janelas já existentes.
     family = parte do nome da família (opcional).
+    type = parte do nome do tipo de janela (opcional).
     """
-    args = {"wall_id": wall_id, "x_m": x_m, "y_m": y_m, "sill_m": sill_m}
+    args = {"wall_id": wall_id, "x_m": x_m, "y_m": y_m}
+    if sill_m is not None:
+        args["sill_m"] = sill_m
+    if width_m is not None:
+        args["width_m"] = width_m
+    if height_m is not None:
+        args["height_m"] = height_m
+    if kind:
+        args["kind"] = kind
     if family:
         args["family"] = family
+    if type:
+        args["type"] = type
     return await _rpc("create_window", **args)
+
+
+@mcp.tool()
+async def resize_window(
+    window_id: int,
+    width_m: Optional[float] = None,
+    height_m: Optional[float] = None,
+    sill_m: Optional[float] = None,
+    kind: str = "generica",
+    family: Optional[str] = None,
+    type: Optional[str] = None,
+) -> dict:
+    """Redimensiona uma janela já colocada, sem modificar as demais.
+    window_id vem de list_windows. kind aceita generica, quarto, banheiro,
+    sala, cozinha, lavanderia ou closet; medidas explícitas têm prioridade.
+    type troca para um tipo real já carregado, garantindo a geometria visível."""
+    args = {"window_id": window_id, "kind": kind}
+    if width_m is not None:
+        args["width_m"] = width_m
+    if height_m is not None:
+        args["height_m"] = height_m
+    if sill_m is not None:
+        args["sill_m"] = sill_m
+    if family:
+        args["family"] = family
+    if type:
+        args["type"] = type
+    return await _rpc("resize_window", **args)
 
 
 @mcp.tool()
@@ -573,7 +629,7 @@ async def place_rooms_at(rooms: list, level: Optional[str] = None) -> dict:
 @mcp.tool()
 async def place_furniture(items: list, level: Optional[str] = None) -> dict:
     """
-    Coloca móveis nos cômodos como caixas 3D.
+    Coloca mobiliário em planta como blocos 2D modernos.
     items = lista de objetos com:
       - name: nome do móvel (ex: "Sofá", "Mesa", "Cama")
       - x, y: posição em metros
@@ -590,6 +646,18 @@ async def place_furniture(items: list, level: Optional[str] = None) -> dict:
     if level:
         args["level"] = level
     return await _rpc("place_furniture", **args)
+
+
+@mcp.tool()
+async def place_blocks(items: list, level: Optional[str] = None) -> dict:
+    """
+    Alias explícito para desenhar blocos 2D modernos de mobiliário na planta.
+    Use quando quiser evitar qualquer dependência de família externa.
+    """
+    args = {"items": items}
+    if level:
+        args["level"] = level
+    return await _rpc("place_blocks", **args)
 
 
 @mcp.tool()
@@ -1085,6 +1153,13 @@ async def set_view_shaded() -> dict:
 async def zoom_fit() -> dict:
     """Ajusta o zoom para mostrar todo o conteúdo visível da vista ativa."""
     return await _rpc("zoom_fit")
+
+
+@mcp.tool()
+async def focus_element(element_id: int) -> dict:
+    """Seleciona e enquadra um elemento no Revit. Útil para localizar uma
+    janela, porta ou móvel específico após uma alteração."""
+    return await _rpc("focus_element", element_id=element_id)
 
 
 @mcp.tool()
