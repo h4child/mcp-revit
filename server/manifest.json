@@ -2,8 +2,8 @@
   "manifest_version": "0.2",
   "name": "revit-mcp",
   "display_name": "Revit MCP — Automação Arquitetônica",
-  "version": "1.1.0",
-  "description": "Servidor MCP para automação do Revit 2025 via add-in .NET. Permite criar projetos, paredes, portas, janelas, cômodos e móveis por IA.",
+  "version": "1.2.0",
+  "description": "Servidor MCP para automação profissional do Revit 2025 via add-in .NET: modelagem arquitetônica, estrutural e MEP, documentação, coordenação e dados do projeto.",
   "long_description": "Conecta o Claude ao Revit 2025 através de um add-in C# com bridge HTTP local. Ferramentas de criação de elementos arquitetônicos (paredes, portas, janelas, cômodos, mobiliário), visualização (planta, 3D, screenshot) e gerenciamento de projeto (criar, abrir, salvar). Todas as medidas em metros.",
   "author": {
     "name": "Revit MCP Contributors"
@@ -490,6 +490,202 @@
     {
       "name": "import_cad",
       "description": "Importa DWG/DXF na vista ativa."
+    },
+    {
+      "name": "get_project_info",
+      "description": "Lê as informações do projeto (nome, número, cliente, endereço, status, autor e demais parâmetros)."
+    },
+    {
+      "name": "set_project_info",
+      "description": "Preenche as informações do projeto usadas nos carimbos."
+    },
+    {
+      "name": "get_project_location",
+      "description": "Ponto base, ponto de levantamento, coordenadas compartilhadas, norte verdadeiro e latitude/longitude."
+    },
+    {
+      "name": "list_phases",
+      "description": "Lista as fases do projeto (ex.: Existente, Construção nova) em ordem."
+    },
+    {
+      "name": "set_element_phase",
+      "description": "Define a fase de criação e/ou demolição de elementos (reformas e retrofit)."
+    },
+    {
+      "name": "create_workset",
+      "description": "Cria worksets de usuário em modelo workshared (ex.: [\"Arquitetura\", \"Estrutura\", \"MEP\"])."
+    },
+    {
+      "name": "set_element_workset",
+      "description": "Move elementos para um workset (modelo workshared; o Revit empresta os elementos se preciso)."
+    },
+    {
+      "name": "list_project_parameters",
+      "description": "Lista os parâmetros de projeto com tipo de dado, vínculo (instância/tipo) e categorias."
+    },
+    {
+      "name": "add_project_parameter",
+      "description": "Cria um parâmetro de projeto compartilhado (aparece em tabelas, filtros e etiquetas)."
+    },
+    {
+      "name": "find_elements",
+      "description": "Consulta elementos por categoria, nível, tipo e condições de parâmetros."
+    },
+    {
+      "name": "set_parameters_bulk",
+      "description": "Define parâmetros em vários elementos de uma vez (uma única transação)."
+    },
+    {
+      "name": "duplicate_view",
+      "description": "Duplica uma vista (ativa por padrão)."
+    },
+    {
+      "name": "set_view_properties",
+      "description": "Ajusta nome, escala (ex.: 50 = 1:50), nível de detalhe (coarse/medium/fine), disciplina (Architectural, Structural, Mechanical, Electrical, Plumbing,..."
+    },
+    {
+      "name": "create_elevations",
+      "description": "Cria elevações a partir de um marcador no ponto (x, y) da planta."
+    },
+    {
+      "name": "create_3d_view",
+      "description": "Cria uma vista 3D nomeada, com caixa de corte ajustada a elementos ou a limites, e categorias ocultas (ex.: [\"Roofs\"] para ver o interior)."
+    },
+    {
+      "name": "create_drafting_view",
+      "description": "Cria uma vista de desenho (detalhes 2D sem modelo), ex.: 'Detalhe de soleira'."
+    },
+    {
+      "name": "create_view_filter",
+      "description": "Cria (ou atualiza) um filtro de vista por parâmetro e o aplica com cor/visibilidade."
+    },
+    {
+      "name": "override_elements_in_view",
+      "description": "Altera a aparência de elementos numa vista."
+    },
+    {
+      "name": "set_category_visibility",
+      "description": "Mostra/oculta categorias inteiras numa vista (ex.: [\"Furniture\", \"Planting\"])."
+    },
+    {
+      "name": "tag_elements",
+      "description": "Etiqueta todos os elementos visíveis de uma categoria na vista (Doors, Windows, Walls, StructuralColumns, DuctCurves...)."
+    },
+    {
+      "name": "list_sheets",
+      "description": "Lista pranchas com número, nome, vistas posicionadas e revisões."
+    },
+    {
+      "name": "list_titleblocks",
+      "description": "Lista os carimbos (title blocks) carregados."
+    },
+    {
+      "name": "create_sheets",
+      "description": "Cria várias pranchas: sheets=[{\"number\": \"A-101\", \"name\": \"Planta térreo\"}, ...]."
+    },
+    {
+      "name": "list_revisions",
+      "description": "Lista as revisões do projeto (sequência, número, descrição, data, emissão)."
+    },
+    {
+      "name": "create_revision",
+      "description": "Cria uma revisão (ex.: 'Emissão para aprovação na prefeitura')."
+    },
+    {
+      "name": "add_revision_to_sheets",
+      "description": "Adiciona a revisão às pranchas indicadas (padrão: todas)."
+    },
+    {
+      "name": "list_schedules",
+      "description": "Lista as tabelas do projeto com categoria e campos."
+    },
+    {
+      "name": "create_schedule_advanced",
+      "description": "Cria tabela com campos, ordenação e filtros."
+    },
+    {
+      "name": "get_schedule_data",
+      "description": "Lê o conteúdo de uma tabela (linhas e colunas como texto) para conferência ou relatórios."
+    },
+    {
+      "name": "export_schedule_csv",
+      "description": "Exporta uma tabela para CSV (compatível com Excel em português com delimitador ';')."
+    },
+    {
+      "name": "export_sheets_pdf",
+      "description": "Exporta pranchas para PDF (todas, por IDs ou por prefixo de número, ex.: 'A-')."
+    },
+    {
+      "name": "export_sheets_dwg",
+      "description": "Exporta pranchas para DWG (um arquivo por prancha)."
+    },
+    {
+      "name": "analyze_clashes",
+      "description": "Detecta interferências físicas entre duas categorias (ex.: StructuralFraming x DuctCurves)."
+    },
+    {
+      "name": "analyze_quantities",
+      "description": "Quantitativo por categoria e tipo: contagem, comprimento (m), área (m²) e volume (m³)."
+    },
+    {
+      "name": "analyze_material_takeoff",
+      "description": "Levantamento de materiais: área e volume por material nas categorias informadas."
+    },
+    {
+      "name": "preview_purge_unused",
+      "description": "Mostra famílias, tipos e materiais não usados que podem ser removidos (somente leitura)."
+    },
+    {
+      "name": "purge_unused",
+      "description": "Remove itens não usados (exclusão permanente)."
+    },
+    {
+      "name": "list_links",
+      "description": "Lista vínculos Revit (caminho, carregado) e CAD (vinculado/importado, vista)."
+    },
+    {
+      "name": "load_revit_link",
+      "description": "Vincula um modelo .rvt (ex.: estrutura, MEP)."
+    },
+    {
+      "name": "reload_link",
+      "description": "Recarrega (ou descarrega, com unload=True) um vínculo Revit."
+    },
+    {
+      "name": "create_beam",
+      "description": "Cria vigas estruturais entre dois pontos, ou várias com beams=[{x1_m,y1_m,x2_m,y2_m}]."
+    },
+    {
+      "name": "create_foundation",
+      "description": "Cria fundações: kind=\"isolated\" (sapatas nos points [{x_m,y_m}]) ou kind=\"wall\" (sapata corrida sob as paredes wall_ids)."
+    },
+    {
+      "name": "list_mep_types",
+      "description": "Lista sistemas e tipos de dutos, tubos, eletrocalhas e eletrodutos do projeto."
+    },
+    {
+      "name": "create_mep_run",
+      "description": "Cria um trecho contínuo de duto, tubo, eletrocalha ou eletroduto pela polilinha points."
+    },
+    {
+      "name": "create_spaces_from_rooms",
+      "description": "Cria espaços MEP (Spaces) nos ambientes existentes, copiando nome e número."
+    },
+    {
+      "name": "array_elements",
+      "description": "Cria cópias em série (count inclui o original) com passo (dx, dy, dz) em metros."
+    },
+    {
+      "name": "create_group",
+      "description": "Agrupa elementos num grupo de modelo (ex.: banheiro típico, módulo de apartamento)."
+    },
+    {
+      "name": "place_group",
+      "description": "Insere cópias de um grupo de modelo nos points [{x_m, y_m, z_m?}]."
+    },
+    {
+      "name": "create_room_separators",
+      "description": "Cria linhas separadoras de ambiente (lines=[{x1_m,y1_m,x2_m,y2_m}]) para dividir ambientes sem paredes, como sala/cozinha integradas."
     }
   ],
   "keywords": [

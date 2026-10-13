@@ -49,7 +49,7 @@ using Autodesk.Revit.UI;
 
 namespace RevitMcp
 {
-    public static class Commands
+    public static partial class Commands
     {
         // =====================================================================
         // Dispatch — roteador central de comandos
@@ -274,7 +274,8 @@ namespace RevitMcp
                     case "list_audit_log": return ListAuditLog(uiApp, req.args);
 
                     default:
-                        throw new Exception($"Comando desconhecido: {req.cmd}");
+                        // Comandos profissionais (CommandsPro.cs)
+                        return ExecutarComandoPro(uiApp, req);
                 }
         }
 
@@ -293,6 +294,7 @@ namespace RevitMcp
                 || cmd.StartsWith("validate_", StringComparison.OrdinalIgnoreCase)
                 || cmd.StartsWith("analyze_", StringComparison.OrdinalIgnoreCase)
                 || cmd.StartsWith("preview_", StringComparison.OrdinalIgnoreCase)
+                || cmd.StartsWith("find_", StringComparison.OrdinalIgnoreCase)
                 || cmd == "ping" || cmd == "bridge_health" || cmd == "save_document"
                 || cmd == "backup_document" || cmd == "plan_batch" || cmd == "screenshot"
                 || cmd == "new_project" || cmd == "open_document" || cmd == "save_as"
@@ -1036,7 +1038,10 @@ namespace RevitMcp
             "create_floor", "create_roof", "create_ceiling", "create_column", "create_grid",
             "create_detail_line", "create_detail_lines", "create_detail_rectangle", "create_text",
             "create_material", "create_rectangular_prism", "place_kitchen_counter", "place_pool",
-            "place_rooms_at", "set_plan_crop", "set_wall_join", "set_line_style"
+            "place_rooms_at", "set_plan_crop", "set_wall_join", "set_line_style",
+            "create_beam", "create_foundation", "create_mep_run", "create_sheets",
+            "set_parameters_bulk", "array_elements", "create_room_separators", "set_element_phase",
+            "set_element_workset", "tag_elements", "override_elements_in_view", "set_category_visibility"
         };
 
         /// <summary>Valida e explica um lote antes de ele tocar no modelo.</summary>
@@ -4296,22 +4301,10 @@ namespace RevitMcp
                 tx.Start();
                 foreach (var prop in pmap.EnumerateObject())
                 {
-                    var par = el.LookupParameter(prop.Name);
-                    if (par == null || par.IsReadOnly) { aplicados.Add(new { nome = prop.Name, ok = false, motivo = par == null ? "não encontrado" : "só-leitura" }); continue; }
-                    try
-                    {
-                        if (prop.Value.ValueKind == JsonValueKind.Number)
-                        {
-                            double val = prop.Value.GetDouble();
-                            if (par.StorageType == StorageType.Double) par.Set(MToFt(val));
-                            else if (par.StorageType == StorageType.Integer) par.Set((int)val);
-                            else par.Set(val.ToString());
-                        }
-                        else if (prop.Value.ValueKind == JsonValueKind.String) par.Set(prop.Value.GetString());
-                        else if (prop.Value.ValueKind == JsonValueKind.True || prop.Value.ValueKind == JsonValueKind.False) par.Set(prop.Value.GetBoolean() ? 1 : 0);
-                        aplicados.Add(new { nome = prop.Name, ok = true });
-                    }
-                    catch (Exception ex) { aplicados.Add(new { nome = prop.Name, ok = false, motivo = ex.Message }); }
+                    // Unidades por grandeza: comprimento em m, área em m², volume em m³,
+                    // ângulo em graus (antes todo número real era tratado como metro).
+                    var erro = ProSetParam(doc, ProLookup(doc, el, prop.Name, includeType: false), prop.Value);
+                    aplicados.Add(new { nome = prop.Name, ok = erro == null, motivo = erro });
                 }
                 tx.Commit();
             }

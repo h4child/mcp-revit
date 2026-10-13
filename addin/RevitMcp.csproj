@@ -18,7 +18,22 @@
     <RevitApiDir Condition="'$(RevitApiDir)' == ''">C:\Program Files\Autodesk\Revit 2025</RevitApiDir>
   </PropertyGroup>
 
-  <ItemGroup>
+  <!--
+    Sem o Revit instalado (CI, máquina de build), compila contra os assemblies de
+    referência da API publicados no NuGet. Eles não são copiados para a saída: em
+    execução, o Revit fornece RevitAPI.dll/RevitAPIUI.dll.
+  -->
+  <PropertyGroup>
+    <UseRevitApiPackages Condition="'$(UseRevitApiPackages)' == '' And !Exists('$(RevitApiDir)\RevitAPI.dll')">true</UseRevitApiPackages>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(UseRevitApiPackages)' == 'true'">
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2025.4.60" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2025.4.60" ExcludeAssets="runtime" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UseRevitApiPackages)' != 'true'">
     <Reference Include="RevitAPI">
       <HintPath>$(RevitApiDir)\RevitAPI.dll</HintPath>
       <Private>false</Private>

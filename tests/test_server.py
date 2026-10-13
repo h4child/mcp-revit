@@ -90,3 +90,35 @@ def test_check_cli(bridge, capsys):
     srv, _ = bridge
     assert run(srv._check()) == 0
     assert "OK" in capsys.readouterr().out
+
+
+def test_optional_arguments_are_omitted(bridge):
+    srv, fake = bridge
+    run(srv.find_elements(category="Doors", where=[{"parameter": "Marca", "op": "empty"}]))
+    args = fake.calls[-1]["args"]
+    assert fake.calls[-1]["cmd"] == "find_elements"
+    assert args == {"category": "Doors", "where": [{"parameter": "Marca", "op": "empty"}], "limit": 200}
+
+
+def test_bulk_parameters_payload(bridge):
+    srv, fake = bridge
+    run(srv.set_parameters_bulk(params={"Comentários": "Revisar"}, filter={"category": "Doors"}))
+    assert fake.calls[-1]["args"] == {
+        "params": {"Comentários": "Revisar"}, "filter": {"category": "Doors"}, "target": "instance"}
+
+
+def test_create_beam_requires_coordinates_or_list(bridge):
+    srv, fake = bridge
+    with pytest.raises(ValueError):
+        run(srv.create_beam(x1_m=0, y1_m=0))
+    run(srv.create_beam(beams=[{"x1_m": 0, "y1_m": 0, "x2_m": 5, "y2_m": 0}], type="20x50"))
+    assert fake.calls[-1]["args"]["beams"][0]["x2_m"] == 5
+    assert "x1_m" not in fake.calls[-1]["args"]
+
+
+def test_mep_run_payload(bridge):
+    srv, fake = bridge
+    run(srv.create_mep_run(kind="duct", points=[{"x_m": 0, "y_m": 0}, {"x_m": 6, "y_m": 0}],
+                           width_m=0.4, height_m=0.3))
+    args = fake.calls[-1]["args"]
+    assert args["kind"] == "duct" and args["width_m"] == 0.4 and "diameter_m" not in args
