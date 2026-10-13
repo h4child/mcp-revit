@@ -21,15 +21,27 @@
 # Para iniciar: python server.py
 # =============================================================================
 
+import argparse
+import asyncio
+import json
 import logging
 import os
-import json
+import sys
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
 import httpx
-from mcp.server.fastmcp import FastMCP
+
+try:
+    from mcp.server.fastmcp import FastMCP
+except ImportError as _exc:  # mcp 2.x removeu o módulo fastmcp
+    sys.stderr.write(
+        "revit-mcp requer o pacote 'mcp' 1.x (mcp>=1.2,<2). "
+        "Execute: pip install -r server/requirements.txt\n"
+        f"Detalhe: {_exc}\n"
+    )
+    raise SystemExit(1)
 
 try:
     from dotenv import load_dotenv
@@ -40,32 +52,58 @@ except ImportError:
     pass
 
 # --- Configuração de log ---
+# stdout é o canal do protocolo MCP (stdio); logs vão sempre para stderr.
 logging.basicConfig(
+    stream=sys.stderr,
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("revit-mcp")
+# Uma linha por requisição ao bridge polui o log do cliente MCP.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # --- Conexão com o bridge HTTP dentro do Revit ---
-BRIDGE_URL = os.environ.get("REVIT_MCP_URL", "http://127.0.0.1:14733/rpc")
 TIMEOUT = float(os.environ.get("REVIT_MCP_TIMEOUT", "120"))
 CONFIG_PATH = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local"))) / "RevitMcp" / "bridge.json"
 WORKSPACE_CONFIG_PATH = Path(__file__).with_name(".revit_mcp_bridge.json")
+DEFAULT_PORT = 14733
+
+
+def _read_config(config_path: Path) -> dict:
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8-sig"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _bridge_url() -> str:
+    """URL do bridge: REVIT_MCP_URL > REVIT_MCP_PORT > "port" do bridge.json > 14733."""
+    url = os.environ.get("REVIT_MCP_URL")
+    if url:
+        return url
+    port = os.environ.get("REVIT_MCP_PORT") or _read_config(CONFIG_PATH).get("port") or DEFAULT_PORT
+    return f"http://127.0.0.1:{int(port)}/rpc"
+
+
+BRIDGE_URL = _bridge_url()
 
 
 def _bridge_token() -> str:
-    """Lê o token atual dinamicamente, permitindo reload seguro sem reiniciar o MCP."""
+    """Lê o token atual dinamicamente, permitindo reload seguro sem reiniciar o MCP.
+
+    O bridge.json em %LOCALAPPDATA% é a fonte usada pelo Revit, então tem
+    prioridade sobre a cópia ao lado do servidor (que pode ficar desatualizada
+    se o add-in gerar um token novo).
+    """
     token = os.environ.get("REVIT_MCP_TOKEN")
     if token:
         return token
-    for config_path in (WORKSPACE_CONFIG_PATH, CONFIG_PATH):
-        try:
-            value = str(json.loads(config_path.read_text(encoding="utf-8-sig")).get("token") or "")
-            if value:
-                return value
-        except (OSError, ValueError, TypeError):
-            continue
+    for config_path in (CONFIG_PATH, WORKSPACE_CONFIG_PATH):
+        value = str(_read_config(config_path).get("token") or "")
+        if value:
+            return value
     return ""
 
 
@@ -82,6 +120,12 @@ def _headers() -> dict:
     if not token:
         raise RuntimeError("Token do RevitMcp não encontrado. Execute reload-revit-mcp.ps1 para inicializar o bridge seguro.")
     return {"X-Revit-Mcp-Token": token}
+
+
+def _client(timeout: float) -> httpx.AsyncClient:
+    # trust_env=False: proxies corporativos (HTTP_PROXY/HTTPS_PROXY) não devem
+    # interceptar o tráfego para 127.0.0.1.
+    return httpx.AsyncClient(timeout=timeout, trust_env=False)
 
 # --- Servidor MCP ---
 mcp = FastMCP("revit-mcp")
@@ -100,7 +144,7 @@ async def _rpc(cmd: str, **args) -> object:
     payload = {"cmd": cmd, "args": args}
     log.debug("RPC → %s %s", cmd, args)
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        async with _client(TIMEOUT) as client:
             r = await client.post(BRIDGE_URL, json=payload, headers=_headers())
     except httpx.RequestError as e:
         raise RuntimeError(
@@ -111,11 +155,13 @@ async def _rpc(cmd: str, **args) -> object:
 
     try:
         data = r.json()
-    except Exception:
+    except ValueError:
         raise RuntimeError(
             f"Resposta inválida do Revit (HTTP {r.status_code}): {r.text[:300]}"
         )
 
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Resposta inesperada do Revit (HTTP {r.status_code}).")
     if not data.get("ok"):
         request_id = data.get("request_id")
         suffix = f" (requisição {request_id})" if request_id else ""
@@ -130,11 +176,15 @@ async def bridge_health() -> dict:
     _validate_bridge_url()
     health_url = BRIDGE_URL.rsplit("/", 1)[0] + "/health"
     try:
-        async with httpx.AsyncClient(timeout=min(TIMEOUT, 15)) as client:
+        async with _client(min(TIMEOUT, 15)) as client:
             response = await client.get(health_url, headers=_headers())
             data = response.json()
     except (httpx.RequestError, ValueError) as exc:
-        raise RuntimeError(f"Bridge do Revit indisponível: {exc}")
+        raise RuntimeError(
+            f"Bridge do Revit indisponível em {health_url}: {exc}. "
+            "Confirme que o Revit 2025 está aberto e que o add-in RevitMcp carregou "
+            "(veja %LOCALAPPDATA%\\RevitMcp\\logs\\revit_mcp_startup.log ou rode diagnose-revit-mcp.ps1)."
+        )
     if not data.get("ok"):
         raise RuntimeError(data.get("error") or f"Health falhou (HTTP {response.status_code})")
     return data
@@ -1449,11 +1499,19 @@ async def create_slab_edge(x1_m: float, y1_m: float, x2_m: float, y2_m: float) -
 
 @mcp.tool()
 async def create_ceiling_plan(x1_m: float, y1_m: float, x2_m: float, y2_m: float,
-                              level: Optional[str] = None, ceiling_type: Optional[str] = None) -> dict:
-    """Cria forro (mesmo que create_ceiling — mantido por alinhamento com o roadmap)."""
-    args = {"x1_m": x1_m, "y1_m": y1_m, "x2_m": x2_m, "y2_m": y2_m}
+                              level: Optional[str] = None, height_offset_m: float = 2.7) -> dict:
+    """Cria forro retangular entre os cantos (x1,y1) e (x2,y2), a height_offset_m acima do nível.
+
+    Mesmo comportamento de create_ceiling — mantido por alinhamento com o roadmap.
+    """
+    # O add-in compartilha a implementação de create_ceiling, que espera o
+    # retângulo como mínimos/máximos e a altura do forro acima do nível.
+    args = {
+        "x_min_m": min(x1_m, x2_m), "y_min_m": min(y1_m, y2_m),
+        "x_max_m": max(x1_m, x2_m), "y_max_m": max(y1_m, y2_m),
+        "height_offset_m": height_offset_m,
+    }
     if level: args["level"] = level
-    if ceiling_type: args["ceiling_type"] = ceiling_type
     return await _rpc("create_ceiling_plan", **args)
 
 @mcp.tool()
@@ -1622,5 +1680,32 @@ async def import_cad(path: str) -> dict:
 # Ponto de entrada
 # =============================================================================
 
-if __name__ == "__main__":
+async def _check() -> int:
+    """Diagnóstico de linha de comando: python server.py --check."""
+    print(f"Bridge: {BRIDGE_URL}")
+    print(f"Token: {'encontrado' if _bridge_token() else 'AUSENTE'} "
+          f"(procurado em REVIT_MCP_TOKEN, {CONFIG_PATH}, {WORKSPACE_CONFIG_PATH})")
+    try:
+        health = await bridge_health()
+        print("Health:", json.dumps(health, ensure_ascii=False))
+        info = await _rpc("get_info")
+        print("Revit:", json.dumps(info, ensure_ascii=False, default=str))
+    except Exception as exc:  # noqa: BLE001 - relatório para o usuário
+        print(f"FALHA: {exc}")
+        return 1
+    print("OK: o MCP está pronto para uso.")
+    return 0
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Servidor MCP para Autodesk Revit 2025.")
+    parser.add_argument("--check", action="store_true",
+                        help="testa a conexão com o add-in do Revit e sai")
+    options = parser.parse_args()
+    if options.check:
+        raise SystemExit(asyncio.run(_check()))
     mcp.run()
+
+
+if __name__ == "__main__":
+    main()

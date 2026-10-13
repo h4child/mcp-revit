@@ -53,17 +53,23 @@ namespace RevitMcp
                 a.Idling += OnIdling;
 
                 // Inicia o servidor HTTP que recebe comandos do MCP Python
-                Bridge = new HttpBridge(14733);
+                Bridge = new HttpBridge(HttpBridge.DefaultPort);
                 Bridge.Start();
-                StartupLog("Bridge HTTP ativo em 127.0.0.1:14733.");
+                StartupLog($"Bridge HTTP ativo em 127.0.0.1:{Bridge.Port}.");
 
                 return Result.Succeeded;
             }
             catch (Exception ex)
             {
                 StartupLog("Falha no OnStartup: " + ex);
-                TaskDialog.Show("RevitMcp", "Falha ao iniciar: " + ex.Message);
-                return Result.Failed;
+                try { Bridge?.Stop(); } catch { }
+                Bridge = null;
+                // O Revit deve continuar utilizável mesmo sem o bridge; a mensagem
+                // indica a causa e onde está o log completo.
+                TaskDialog.Show("RevitMcp",
+                    "O bridge MCP não pôde ser iniciado: " + ex.Message +
+                    "\n\nLog: %LOCALAPPDATA%\\RevitMcp\\logs\\revit_mcp_startup.log");
+                return Result.Succeeded;
             }
         }
 
@@ -74,7 +80,12 @@ namespace RevitMcp
         private void OnIdling(object sender, IdlingEventArgs e)
         {
             if (UiApp == null && sender is UIApplication u)
+            {
                 UiApp = u;
+                // Só é necessário uma vez; manter a assinatura custaria uma
+                // chamada a cada ciclo ocioso do Revit.
+                try { UiCtrlApp.Idling -= OnIdling; } catch { }
+            }
         }
 
         /// <summary>
@@ -83,20 +94,18 @@ namespace RevitMcp
         /// </summary>
         public Result OnShutdown(UIControlledApplication a)
         {
+            try { a.Idling -= OnIdling; } catch { }
             try { Bridge?.Stop(); StartupLog("OnShutdown concluído."); } catch { }
             return Result.Succeeded;
         }
 
         /// <summary>Registro mínimo de inicialização para diagnóstico sem depender da interface.</summary>
+        /// <remarks>Grava em %LOCALAPPDATA%\RevitMcp\logs e, por compatibilidade, em %TEMP%.</remarks>
         private static void StartupLog(string message)
         {
-            try
-            {
-                File.AppendAllText(
-                    Path.Combine(Path.GetTempPath(), "revit_mcp_startup.log"),
-                    DateTime.Now.ToString("s") + " " + message + Environment.NewLine);
-            }
-            catch { }
+            var line = DateTime.Now.ToString("s") + " " + message + Environment.NewLine;
+            try { File.AppendAllText(Path.Combine(HttpBridge.LogDirectory(), "revit_mcp_startup.log"), line); } catch { }
+            try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "revit_mcp_startup.log"), line); } catch { }
         }
     }
 }
