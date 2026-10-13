@@ -108,11 +108,26 @@ namespace RevitMcp
         {
             lock (_gate)
             {
+                if (App.Event == null)
+                    throw new InvalidOperationException("RevitMcp ainda não foi inicializado pelo Revit.");
+
                 var item = new WorkItem { Work = work };
                 lock (_queueGate) _queue.Enqueue(item);
 
                 // Dispara o evento — o Revit vai chamar Execute() quando puder
-                App.Event.Raise();
+                var request = App.Event.Raise();
+                if (request == ExternalEventRequest.Denied || request == ExternalEventRequest.TimedOut)
+                {
+                    lock (_queueGate)
+                    {
+                        // Pending/Accepted significam que Execute() vai drenar a fila.
+                        // Denied/TimedOut: o item não será executado; remove-o.
+                        if (!item.Started) item.Cancelled = true;
+                    }
+                    if (item.Cancelled)
+                        throw new InvalidOperationException(
+                            $"O Revit recusou o pedido de execução ({request}). Feche diálogos/edições em andamento e tente novamente.");
+                }
 
                 // Aguarda a conclusão ou timeout
                 if (!item.Done.Wait(timeoutMs))

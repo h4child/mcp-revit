@@ -70,33 +70,50 @@ namespace RevitMcp
             if (req.cmd == "ping")
                 return new { pong = true, time = DateTime.Now.ToString("s") };
 
+            if (App.Handler == null)
+                throw new InvalidOperationException("RevitMcp ainda não foi inicializado pelo Revit.");
+
             // Todos os outros comandos precisam da thread principal
             return App.Handler.Run(uiApp =>
             {
                 // Snapshot de avisos ANTES do comando: pra detectar novos avisos causados por ele.
                 var doc = uiApp?.ActiveUIDocument?.Document;
-                var avisosAntes = doc != null
-                    ? new HashSet<string>(doc.GetWarnings().Select(w => ChaveAviso(w)))
-                    : new HashSet<string>();
+                var avisosAntes = new HashSet<string>();
+                try { if (doc != null) avisosAntes = new HashSet<string>(doc.GetWarnings().Select(w => ChaveAviso(w))); }
+                catch (Exception ex) { HttpBridge.LogException("Snapshot de avisos", ex); }
 
                 object resultado = ExecutarComando(uiApp, req);
 
-                if (doc != null && IsAuditableWrite(req.cmd))
-                    AppendAuditEntry(doc, uiApp.Application.Username, req.cmd, "concluído");
+                // Comandos como open_document/new_project podem trocar ou fechar
+                // o documento capturado; nesses casos não há o que auditar nele.
+                bool docValido = doc != null && doc.IsValidObject && !doc.IsReadOnly && !doc.IsModifiable;
+                if (docValido && IsAuditableWrite(req.cmd) && !IsDryRun(req))
+                {
+                    // A auditoria é registro auxiliar: falhar nela (ex.: elementos
+                    // emprestados em workshared) não pode transformar um comando
+                    // concluído em erro para o cliente.
+                    try { AppendAuditEntry(doc, uiApp.Application.Username, req.cmd, "concluído"); }
+                    catch (Exception ex) { HttpBridge.LogException("Auditoria " + req.cmd, ex); }
+                }
 
                 // Compara com estado pós-comando; se surgiram avisos novos, anexa ao retorno.
-                if (doc != null)
+                if (docValido)
                 {
-                    var novos = doc.GetWarnings()
-                        .Where(w => !avisosAntes.Contains(ChaveAviso(w)))
-                        .Select(w => new
-                        {
-                            severidade = w.GetSeverity().ToString(),
-                            descricao  = w.GetDescriptionText(),
-                            ids        = w.GetFailingElements().Select(i => i.Value).ToList()
-                        })
-                        .ToList();
-                    if (novos.Count > 0)
+                    List<object> novos = null;
+                    try
+                    {
+                        novos = doc.GetWarnings()
+                            .Where(w => !avisosAntes.Contains(ChaveAviso(w)))
+                            .Select(w => (object)new
+                            {
+                                severidade = w.GetSeverity().ToString(),
+                                descricao  = w.GetDescriptionText(),
+                                ids        = w.GetFailingElements().Select(i => i.Value).ToList()
+                            })
+                            .ToList();
+                    }
+                    catch (Exception ex) { HttpBridge.LogException("Avisos pós-comando", ex); }
+                    if (novos != null && novos.Count > 0)
                         return new { resultado, avisos = novos };
                 }
                 return resultado;
@@ -261,6 +278,13 @@ namespace RevitMcp
                 }
         }
 
+        private static bool IsDryRun(RpcRequest req)
+        {
+            if (req.cmd != "execute_batch") return false;
+            return !(req.args.ValueKind == JsonValueKind.Object
+                && req.args.TryGetProperty("commit", out var cv) && cv.ValueKind == JsonValueKind.True);
+        }
+
         private static bool IsAuditableWrite(string cmd)
         {
             if (string.IsNullOrWhiteSpace(cmd)) return false;
@@ -270,7 +294,9 @@ namespace RevitMcp
                 || cmd.StartsWith("analyze_", StringComparison.OrdinalIgnoreCase)
                 || cmd.StartsWith("preview_", StringComparison.OrdinalIgnoreCase)
                 || cmd == "ping" || cmd == "bridge_health" || cmd == "save_document"
-                || cmd == "backup_document" || cmd.StartsWith("export_", StringComparison.OrdinalIgnoreCase));
+                || cmd == "backup_document" || cmd == "plan_batch" || cmd == "screenshot"
+                || cmd == "new_project" || cmd == "open_document" || cmd == "save_as"
+                || cmd.StartsWith("export_", StringComparison.OrdinalIgnoreCase));
         }
 
         private static readonly Guid AuditSchemaGuid = new Guid("9AD434C7-8A4A-4B66-AE0B-5A7D8AC835E1");

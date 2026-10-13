@@ -8,6 +8,10 @@
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <!-- Caminho fixo usado pelo manifesto .addin, independente da plataforma escolhida. -->
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+    <Version>1.1.0</Version>
     <UseWindowsForms>false</UseWindowsForms>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <RevitApiDir Condition="'$(REVIT_API_DIR)' != ''">$(REVIT_API_DIR)</RevitApiDir>
