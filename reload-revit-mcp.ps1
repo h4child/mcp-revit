@@ -19,6 +19,8 @@ $dllPath = Join-Path $projectRoot 'addin\bin\Release\RevitMcp.dll'
 $addinTemplate = Join-Path $projectRoot 'addin\RevitMcp.addin.example'
 $addinInstallDir = Join-Path $env:APPDATA 'Autodesk\Revit\Addins\2025'
 $addinManifest = Join-Path $addinInstallDir 'RevitMcp.addin'
+$addinInstallDirAllUsers = Join-Path $env:ProgramData 'Autodesk\Revit\Addins\2025'
+$addinManifestAllUsers = Join-Path $addinInstallDirAllUsers 'RevitMcp.addin'
 $stateDir = Join-Path $env:LOCALAPPDATA 'RevitMcp'
 $bridgeConfig = Join-Path $stateDir 'bridge.json'
 $serverBridgeConfig = Join-Path $projectRoot 'server\.revit_mcp_bridge.json'
@@ -128,8 +130,20 @@ if ($LASTEXITCODE -ne 0) { throw 'A assinatura da DLL do MCP falhou.' }
 # de usuário no repositório.
 if (-not (Test-Path -LiteralPath $addinTemplate)) { throw "Template de manifesto não encontrado: $addinTemplate" }
 New-Item -ItemType Directory -Force -Path $addinInstallDir | Out-Null
-(Get-Content -Raw -LiteralPath $addinTemplate).Replace('__REVIT_MCP_ASSEMBLY__', $dllPath) |
-    Set-Content -LiteralPath $addinManifest -Encoding UTF8
+$manifestContent = (Get-Content -Raw -LiteralPath $addinTemplate).Replace('__REVIT_MCP_ASSEMBLY__', $dllPath)
+$manifestContent | Set-Content -LiteralPath $addinManifest -Encoding UTF8
+
+# O Revit também aceita um manifesto em ProgramData (todos os usuários). Em
+# algumas instalações, a política de complementos só reconhece esse local.
+# Grava ali também quando possível, sem falhar o reload se faltar permissão.
+try {
+    New-Item -ItemType Directory -Force -Path $addinInstallDirAllUsers -ErrorAction Stop | Out-Null
+    $manifestContent | Set-Content -LiteralPath $addinManifestAllUsers -Encoding UTF8 -ErrorAction Stop
+    Write-Host "Manifesto também instalado em $addinManifestAllUsers."
+}
+catch {
+    Write-Host "Aviso: não foi possível instalar o manifesto em $addinManifestAllUsers ($($_.Exception.Message)). Mantendo apenas $addinManifest."
+}
 
 if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
     Start-Process -FilePath $revitExe
