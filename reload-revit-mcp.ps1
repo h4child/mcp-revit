@@ -83,6 +83,11 @@ function Find-SignTool {
         $legacy = Join-Path $kits 'x64\signtool.exe'
         if (Test-Path -LiteralPath $legacy) { return $legacy }
     }
+    # Fallback: pacote NuGet Microsoft.Windows.SDK.BuildTools (sem precisar
+    # instalar o Windows SDK completo). Comum quando só o .NET SDK foi instalado.
+    $nugetSignTool = Get-ChildItem "$env:USERPROFILE\.nuget\packages\microsoft.windows.sdk.buildtools" -Filter 'signtool.exe' -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
+    if ($nugetSignTool) { return $nugetSignTool.FullName }
     return $null
 }
 
@@ -219,7 +224,11 @@ if ($signTool) {
             -NotAfter (Get-Date).AddDays(7)
         $rootCer = Join-Path $projectRoot 'addin\RevitMcp-LocalDevelopment-Root.cer'
         Export-Certificate -Cert $root -FilePath $rootCer -Force | Out-Null
-        Import-Certificate -FilePath $rootCer -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
+        # Import-Certificate para Cert:\CurrentUser\Root exige confirmação de UI
+        # do Windows (mesmo com -Confirm:$false) e trava indefinidamente em
+        # sessão não interativa. certutil confia no certificado sem esse prompt.
+        certutil -user -addstore Root $rootCer | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Falha ao confiar no certificado raiz local via certutil.' }
         $newRoot = $true
     }
     if ($newRoot -or -not $existingLeaf -or $existingLeaf.NotAfter -le $renewBefore) {
