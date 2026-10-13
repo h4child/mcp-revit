@@ -1069,7 +1069,7 @@ namespace RevitMcp
             "create_material", "create_rectangular_prism", "place_kitchen_counter", "place_pool",
             "place_rooms_at", "set_plan_crop", "set_wall_join", "set_line_style",
             "create_beam", "create_foundation", "create_mep_run", "create_sheets",
-            "set_parameters_bulk", "array_elements", "create_room_separators", "set_element_phase",
+            "set_parameters_bulk", "array_elements", "create_room_separators",
             "set_element_workset", "tag_elements", "override_elements_in_view", "set_category_visibility"
         };
 

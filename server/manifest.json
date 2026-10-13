@@ -364,6 +364,58 @@
       "description": "Lê trilha persistente de escrita MCP no RVT."
     },
     {
+      "name": "create_project_parameter",
+      "description": "Cria um parâmetro de projeto vinculado a categorias (ex.: categories=[\"Walls\",\"Doors\"])."
+    },
+    {
+      "name": "list_project_parameters",
+      "description": "Lista os parâmetros de projeto com tipo de dado, vínculo (instância/tipo) e categorias."
+    },
+    {
+      "name": "create_view_filter",
+      "description": "Cria um filtro de vista (ParameterFilterElement) por categorias, sem regras de parâmetro."
+    },
+    {
+      "name": "list_view_filters",
+      "description": "Lista os filtros de vista (ParameterFilterElement) disponíveis no projeto."
+    },
+    {
+      "name": "apply_view_filter",
+      "description": "Aplica um filtro já criado (create_view_filter) a uma vista: visibilidade e, opcionalmente, cor de linha (#RRGGBB ou R,G,B) para os elementos que casam com..."
+    },
+    {
+      "name": "list_phases",
+      "description": "Lista as fases do projeto (ex.: Existente, Construção nova) em ordem."
+    },
+    {
+      "name": "set_element_phase",
+      "description": "Define a fase de criação e/ou demolição de elementos (reformas e retrofit)."
+    },
+    {
+      "name": "create_group",
+      "description": "Agrupa elementos num grupo de modelo (ex.: banheiro típico, módulo de apartamento)."
+    },
+    {
+      "name": "list_groups",
+      "description": "Lista os tipos de grupo de modelo já criados (id, nome, quantidade de instâncias no projeto)."
+    },
+    {
+      "name": "place_group",
+      "description": "Insere cópias de um grupo de modelo nos points [{x_m, y_m, z_m?}]."
+    },
+    {
+      "name": "set_category_override",
+      "description": "Aplica override gráfico (cor/peso de linha/meio-tom) a uma categoria inteira em uma vista."
+    },
+    {
+      "name": "set_element_override",
+      "description": "Aplica override gráfico a um elemento específico em uma vista (sobrepõe o override de categoria)."
+    },
+    {
+      "name": "reset_overrides",
+      "description": "Remove overrides de categoria e/ou de elemento em uma vista, restaurando a aparência padrão."
+    },
+    {
       "name": "create_filled_region",
       "description": "Região preenchida (hachura) retangular."
     },
@@ -504,28 +556,12 @@
       "description": "Ponto base, ponto de levantamento, coordenadas compartilhadas, norte verdadeiro e latitude/longitude."
     },
     {
-      "name": "list_phases",
-      "description": "Lista as fases do projeto (ex.: Existente, Construção nova) em ordem."
-    },
-    {
-      "name": "set_element_phase",
-      "description": "Define a fase de criação e/ou demolição de elementos (reformas e retrofit)."
-    },
-    {
       "name": "create_workset",
       "description": "Cria worksets de usuário em modelo workshared (ex.: [\"Arquitetura\", \"Estrutura\", \"MEP\"])."
     },
     {
       "name": "set_element_workset",
       "description": "Move elementos para um workset (modelo workshared; o Revit empresta os elementos se preciso)."
-    },
-    {
-      "name": "list_project_parameters",
-      "description": "Lista os parâmetros de projeto com tipo de dado, vínculo (instância/tipo) e categorias."
-    },
-    {
-      "name": "add_project_parameter",
-      "description": "Cria um parâmetro de projeto compartilhado (aparece em tabelas, filtros e etiquetas)."
     },
     {
       "name": "find_elements",
@@ -556,8 +592,8 @@
       "description": "Cria uma vista de desenho (detalhes 2D sem modelo), ex.: 'Detalhe de soleira'."
     },
     {
-      "name": "create_view_filter",
-      "description": "Cria (ou atualiza) um filtro de vista por parâmetro e o aplica com cor/visibilidade."
+      "name": "create_rule_filter",
+      "description": "Cria (ou atualiza) um filtro de vista com regras de parâmetro e já o aplica com cor/visibilidade."
     },
     {
       "name": "override_elements_in_view",
@@ -674,14 +710,6 @@
     {
       "name": "array_elements",
       "description": "Cria cópias em série (count inclui o original) com passo (dx, dy, dz) em metros."
-    },
-    {
-      "name": "create_group",
-      "description": "Agrupa elementos num grupo de modelo (ex.: banheiro típico, módulo de apartamento)."
-    },
-    {
-      "name": "place_group",
-      "description": "Insere cópias de um grupo de modelo nos points [{x_m, y_m, z_m?}]."
     },
     {
       "name": "create_room_separators",

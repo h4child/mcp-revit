@@ -5,15 +5,18 @@
 // Complementa Commands.cs com o que um projeto real precisa além da
 // modelagem básica:
 //
-//   • Dados do projeto: informações, localização, fases, worksets,
-//     parâmetros de projeto e consultas/edições em massa por parâmetro.
+//   • Dados do projeto: informações, localização, worksets e
+//     consultas/edições em massa por parâmetro.
 //   • Documentação: vistas (duplicar, elevações, 3D, drafting, filtros,
 //     sobreposições), etiquetas, pranchas, revisões, tabelas e exportação.
 //   • Coordenação: detecção de interferências, quantitativos, levantamento
 //     de materiais, vínculos e limpeza de itens não usados.
 //   • Estrutura: vigas e fundações.
 //   • MEP: dutos, tubos, eletrocalhas, eletrodutos e espaços.
-//   • Modelagem geral: cópias em série, grupos e separadores de ambiente.
+//   • Modelagem geral: cópias em série e separadores de ambiente.
+//
+// Parâmetros de projeto, fases, grupos e filtros por categoria ficam em
+// Commands.cs (create_project_parameter, set_element_phase, create_group...).
 //
 // Convenções iguais às de Commands.cs: entradas/saídas em metros, m², m³ e
 // graus; toda escrita dentro de Transaction; erros de validação como
@@ -46,12 +49,8 @@ namespace RevitMcp
                 case "get_project_info":        return GetProjectInfo(uiApp);
                 case "set_project_info":        return SetProjectInfo(uiApp, a);
                 case "get_project_location":    return GetProjectLocation(uiApp);
-                case "list_phases":             return ListPhases(uiApp);
-                case "set_element_phase":       return SetElementPhase(uiApp, a);
                 case "create_workset":          return CreateWorkset(uiApp, a);
                 case "set_element_workset":     return SetElementWorkset(uiApp, a);
-                case "list_project_parameters": return ListProjectParameters(uiApp);
-                case "add_project_parameter":   return AddProjectParameter(uiApp, a);
                 case "find_elements":           return FindElements(uiApp, a);
                 case "set_parameters_bulk":     return SetParametersBulk(uiApp, a);
 
@@ -61,7 +60,7 @@ namespace RevitMcp
                 case "create_elevations":       return CreateElevations(uiApp, a);
                 case "create_3d_view":          return Create3DView(uiApp, a);
                 case "create_drafting_view":    return CreateDraftingView(uiApp, a);
-                case "create_view_filter":      return CreateViewFilter(uiApp, a);
+                case "create_rule_filter":      return CreateRuleFilter(uiApp, a);
                 case "override_elements_in_view": return OverrideElementsInView(uiApp, a);
                 case "set_category_visibility": return SetCategoryVisibility(uiApp, a);
                 case "tag_elements":            return TagElements(uiApp, a);
@@ -101,8 +100,6 @@ namespace RevitMcp
 
                 // --- Modelagem geral ---
                 case "array_elements":          return ArrayElements(uiApp, a);
-                case "create_group":            return CreateGroup(uiApp, a);
-                case "place_group":             return PlaceGroup(uiApp, a);
                 case "create_room_separators":  return CreateRoomSeparators(uiApp, a);
 
                 default:
@@ -516,11 +513,6 @@ namespace RevitMcp
             };
         }
 
-        private static object ListPhases(UIApplication uiApp)
-        {
-            var doc = RequireDoc(uiApp);
-            return doc.Phases.Cast<Phase>().Select((p, i) => new { id = p.Id.Value, nome = p.Name, ordem = i }).ToList();
-        }
 
         private static Phase ProPhase(Document doc, string name)
         {
@@ -531,36 +523,6 @@ namespace RevitMcp
                 ?? throw new ArgumentException($"Fase '{name}' não encontrada. Use list_phases.");
         }
 
-        private static object SetElementPhase(UIApplication uiApp, JsonElement args)
-        {
-            var doc = RequireDoc(uiApp);
-            var ids = ProIds(args, "ids", required: true);
-            var created = ProPhase(doc, GetS(args, "created"));
-            string demolishedName = GetS(args, "demolished");
-            var demolished = string.IsNullOrWhiteSpace(demolishedName) || Normalizar(demolishedName) == "nenhuma" || Normalizar(demolishedName) == "none"
-                ? null : ProPhase(doc, demolishedName);
-            bool clearDemolished = demolishedName != null && demolished == null;
-            if (created == null && demolishedName == null) throw new ArgumentException("Informe created e/ou demolished.");
-            var resultado = new List<object>();
-            using (var tx = ProTx(doc, "Definir fase"))
-            {
-                foreach (var id in ids)
-                {
-                    var e = doc.GetElement(id);
-                    try
-                    {
-                        if (e == null) throw new ArgumentException("não existe");
-                        if (created != null) e.CreatedPhaseId = created.Id;
-                        if (demolished != null) e.DemolishedPhaseId = demolished.Id;
-                        else if (clearDemolished) e.DemolishedPhaseId = ElementId.InvalidElementId;
-                        resultado.Add(new { id = id.Value, ok = true });
-                    }
-                    catch (Exception ex) { resultado.Add(new { id = id.Value, ok = false, motivo = ex.Message }); }
-                }
-                tx.Commit();
-            }
-            return new { elementos = resultado };
-        }
 
         private static object CreateWorkset(UIApplication uiApp, JsonElement args)
         {
@@ -612,142 +574,10 @@ namespace RevitMcp
             return new { workset = ws.Name, elementos = resultado };
         }
 
-        private static object ListProjectParameters(UIApplication uiApp)
-        {
-            var doc = RequireDoc(uiApp);
-            var lista = new List<(string nome, object item)>();
-            var it = doc.ParameterBindings.ForwardIterator();
-            while (it.MoveNext())
-            {
-                var def = it.Key;
-                var binding = it.Current as ElementBinding;
-                lista.Add((def.Name, new
-                {
-                    nome = def.Name,
-                    tipo_dado = SafeTypeId(def),
-                    vinculo = binding is InstanceBinding ? "instancia" : "tipo",
-                    categorias = binding?.Categories.Cast<Category>().Select(c => c.Name).OrderBy(n => n).ToList(),
-                    compartilhado = def is ExternalDefinition
-                }));
-            }
-            return lista.OrderBy(x => x.nome).Select(x => x.item).ToList();
-        }
 
-        private static string SafeTypeId(Definition def)
-        {
-            try { return def.GetDataType()?.TypeId; } catch { return null; }
-        }
 
-        private static ForgeTypeId ProSpecFromName(string name)
-        {
-            switch ((name ?? "text").Trim().ToLowerInvariant())
-            {
-                case "text": case "texto": return SpecTypeId.String.Text;
-                case "url": return SpecTypeId.String.Url;
-                case "integer": case "inteiro": return SpecTypeId.Int.Integer;
-                case "number": case "numero": return SpecTypeId.Number;
-                case "length": case "comprimento": return SpecTypeId.Length;
-                case "area": return SpecTypeId.Area;
-                case "volume": return SpecTypeId.Volume;
-                case "angle": case "angulo": return SpecTypeId.Angle;
-                case "yesno": case "boolean": case "simnao": return SpecTypeId.Boolean.YesNo;
-                case "currency": case "moeda": return SpecTypeId.Currency;
-                default: throw new ArgumentException($"Tipo de parâmetro desconhecido: {name}. Use text, url, integer, number, length, area, volume, angle, yesno ou currency.");
-            }
-        }
 
-        private static ForgeTypeId ProGroupFromName(string name)
-        {
-            switch ((name ?? "data").Trim().ToLowerInvariant())
-            {
-                case "data": case "dados": return GroupTypeId.Data;
-                case "identity": case "identidade": return GroupTypeId.IdentityData;
-                case "text": case "texto": return GroupTypeId.Text;
-                case "general": case "geral": return GroupTypeId.General;
-                case "constraints": case "restricoes": return GroupTypeId.Constraints;
-                case "dimensions": case "dimensoes": return GroupTypeId.Geometry;
-                case "construction": case "construcao": return GroupTypeId.Construction;
-                case "materials": case "materiais": return GroupTypeId.Materials;
-                case "phasing": case "fases": return GroupTypeId.Phasing;
-                case "ifc": return GroupTypeId.Ifc;
-                default: throw new ArgumentException($"Grupo desconhecido: {name}. Use data, identity, text, general, constraints, dimensions, construction, materials, phasing ou ifc.");
-            }
-        }
 
-        /// <summary>
-        /// Cria um parâmetro de projeto (compartilhado, para aparecer em tabelas e
-        /// etiquetas) e o vincula às categorias. Usa um arquivo de parâmetros
-        /// compartilhados próprio do RevitMcp e restaura o arquivo do usuário.
-        /// </summary>
-        private static object AddProjectParameter(UIApplication uiApp, JsonElement args)
-        {
-            var doc = RequireDoc(uiApp);
-            string name = GetS(args, "name") ?? throw new ArgumentException("Argumento 'name' obrigatório.");
-            var categories = ProCategories(args, "categories");
-            if (categories.Count == 0) throw new ArgumentException("Array 'categories' obrigatório (ex.: [\"Rooms\", \"Doors\"]).");
-            var spec = ProSpecFromName(GetS(args, "type", "text"));
-            var group = ProGroupFromName(GetS(args, "group", "data"));
-            bool instance = !string.Equals(GetS(args, "binding", "instance"), "type", StringComparison.OrdinalIgnoreCase);
-
-            var it = doc.ParameterBindings.ForwardIterator();
-            while (it.MoveNext())
-                if (string.Equals(it.Key.Name, name, StringComparison.OrdinalIgnoreCase))
-                    throw new ArgumentException($"Já existe um parâmetro de projeto chamado '{name}'.");
-
-            var app = doc.Application;
-            string original = app.SharedParametersFilename;
-            string sharedFile = Path.Combine(HttpBridge.StateDirectory(), "RevitMcp_SharedParameters.txt");
-            if (!File.Exists(sharedFile)) File.WriteAllText(sharedFile, string.Empty);
-            try
-            {
-                app.SharedParametersFilename = sharedFile;
-                var file = app.OpenSharedParameterFile() ?? throw new Exception("Não foi possível abrir o arquivo de parâmetros compartilhados do RevitMcp.");
-                var defGroup = file.Groups.get_Item("RevitMcp") ?? file.Groups.Create("RevitMcp");
-                var definition = defGroup.Definitions.get_Item(name) as ExternalDefinition;
-                if (definition != null && definition.GetDataType() != spec)
-                    throw new ArgumentException($"O parâmetro compartilhado '{name}' já existe no arquivo do RevitMcp com outro tipo de dado.");
-                if (definition == null)
-                {
-                    var options = new ExternalDefinitionCreationOptions(name, spec)
-                    {
-                        Visible = true,
-                        Description = GetS(args, "description", "Criado pelo RevitMcp")
-                    };
-                    definition = (ExternalDefinition)defGroup.Definitions.Create(options);
-                }
-
-                var catSet = app.Create.NewCategorySet();
-                var ignoradas = new List<string>();
-                foreach (var bic in categories)
-                {
-                    var cat = Category.GetCategory(doc, bic);
-                    if (cat != null && cat.AllowsBoundParameters) catSet.Insert(cat);
-                    else ignoradas.Add(bic.ToString());
-                }
-                if (catSet.IsEmpty) throw new ArgumentException("Nenhuma das categorias aceita parâmetros de projeto.");
-                Binding binding = instance ? (Binding)app.Create.NewInstanceBinding(catSet) : app.Create.NewTypeBinding(catSet);
-                using (var tx = ProTx(doc, "Parâmetro de projeto"))
-                {
-                    if (!doc.ParameterBindings.Insert(definition, binding, group))
-                        throw new Exception("O Revit recusou o vínculo do parâmetro.");
-                    tx.Commit();
-                }
-                return new
-                {
-                    nome = name,
-                    tipo_dado = spec.TypeId,
-                    vinculo = instance ? "instancia" : "tipo",
-                    guid = definition.GUID,
-                    categorias = catSet.Cast<Category>().Select(c => c.Name).ToList(),
-                    categorias_ignoradas = ignoradas,
-                    arquivo_compartilhado = sharedFile
-                };
-            }
-            finally
-            {
-                try { app.SharedParametersFilename = original ?? string.Empty; } catch { }
-            }
-        }
 
         // ---------------------------------------------------------------------
         // Consulta e edição em massa por parâmetro
@@ -1150,7 +980,7 @@ namespace RevitMcp
             };
         }
 
-        private static object CreateViewFilter(UIApplication uiApp, JsonElement args)
+        private static object CreateRuleFilter(UIApplication uiApp, JsonElement args)
         {
             var doc = RequireDoc(uiApp);
             string name = GetS(args, "name") ?? throw new ArgumentException("Argumento 'name' obrigatório.");
@@ -2078,35 +1908,7 @@ namespace RevitMcp
             return new { originais = ids.Select(i => i.Value).ToList(), copias };
         }
 
-        private static object CreateGroup(UIApplication uiApp, JsonElement args)
-        {
-            var doc = RequireDoc(uiApp);
-            var ids = ProIds(args, "ids", required: true);
-            using (var tx = ProTx(doc, "Criar grupo"))
-            {
-                var group = doc.Create.NewGroup(ids);
-                var name = GetS(args, "name");
-                if (!string.IsNullOrWhiteSpace(name)) group.GroupType.Name = name;
-                tx.Commit();
-                return new { id = group.Id.Value, tipo_id = group.GroupType.Id.Value, nome = group.GroupType.Name, membros = ids.Count };
-            }
-        }
 
-        private static object PlaceGroup(UIApplication uiApp, JsonElement args)
-        {
-            var doc = RequireDoc(uiApp);
-            var type = ProFindType<GroupType>(doc, GetS(args, "group_type") ?? throw new ArgumentException("group_type obrigatório."),
-                g => g.Category?.Id.Value == (long)BuiltInCategory.OST_IOSModelGroups)
-                ?? throw new ArgumentException("Tipo de grupo de modelo não encontrado.");
-            var points = ProPoints(args, "points", 0);
-            var criados = new List<long>();
-            using (var tx = ProTx(doc, "Inserir grupo"))
-            {
-                foreach (var p in points) criados.Add(doc.Create.PlaceGroup(p, type).Id.Value);
-                tx.Commit();
-            }
-            return new { tipo = type.Name, ids = criados };
-        }
 
         private static object CreateRoomSeparators(UIApplication uiApp, JsonElement args)
         {

@@ -1847,20 +1847,8 @@ async def get_project_location() -> dict:
     return await _rpc("get_project_location")
 
 
-@mcp.tool()
-async def list_phases() -> list:
-    """Lista as fases do projeto (ex.: Existente, Construção nova) em ordem."""
-    return await _rpc("list_phases")
 
 
-@mcp.tool()
-async def set_element_phase(ids: list[int], created: Optional[str] = None,
-                            demolished: Optional[str] = None) -> dict:
-    """Define a fase de criação e/ou demolição de elementos (reformas e retrofit).
-
-    demolished="none" remove a demolição.
-    """
-    return await _rpc("set_element_phase", **_clean(ids=ids, created=created, demolished=demolished))
 
 
 @mcp.tool()
@@ -1875,26 +1863,8 @@ async def set_element_workset(ids: list[int], workset: str) -> dict:
     return await _rpc("set_element_workset", ids=ids, workset=workset)
 
 
-@mcp.tool()
-async def list_project_parameters() -> list:
-    """Lista os parâmetros de projeto com tipo de dado, vínculo (instância/tipo) e categorias."""
-    return await _rpc("list_project_parameters")
 
 
-@mcp.tool()
-async def add_project_parameter(name: str, categories: list[str], type: str = "text",
-                                binding: str = "instance", group: str = "data",
-                                description: Optional[str] = None) -> dict:
-    """Cria um parâmetro de projeto compartilhado (aparece em tabelas, filtros e etiquetas).
-
-    type: text, url, integer, number, length, area, volume, angle, yesno, currency.
-    binding: instance ou type. group: data, identity, text, general, constraints,
-    dimensions, construction, materials, phasing, ifc.
-    categories: ex.: ["Rooms", "Doors", "Walls"].
-    """
-    return await _rpc("add_project_parameter", **_clean(
-        name=name, categories=categories, type=type, binding=binding, group=group,
-        description=description))
 
 
 @mcp.tool()
@@ -1987,18 +1957,20 @@ async def create_drafting_view(name: str, scale: int = 20) -> dict:
 
 
 @mcp.tool()
-async def create_view_filter(name: str, categories: list[str], rules: Optional[list[dict]] = None,
+async def create_rule_filter(name: str, categories: list[str], rules: Optional[list[dict]] = None,
                              logic: str = "and", view_id: Optional[int] = None, apply: bool = True,
                              color: Optional[str] = None, fill: bool = True, halftone: bool = False,
                              transparency: Optional[int] = None, line_weight: Optional[int] = None,
                              visible: bool = True) -> dict:
-    """Cria (ou atualiza) um filtro de vista por parâmetro e o aplica com cor/visibilidade.
+    """Cria (ou atualiza) um filtro de vista com regras de parâmetro e já o aplica com cor/visibilidade.
+
+    Para filtros só por categoria, use create_view_filter + apply_view_filter.
 
     rules = [{"parameter": "Classificação de incêndio", "op": "equals", "value": "EI 60"}]
     op: equals, not_equals, contains, not_contains, starts_with, gt, gte, lt, lte,
     has_value, has_no_value. color='#FF0000'. visible=False oculta os elementos filtrados.
     """
-    return await _rpc("create_view_filter", **_clean(
+    return await _rpc("create_rule_filter", **_clean(
         name=name, categories=categories, rules=rules, logic=logic, view_id=view_id, apply=apply,
         color=color, fill=fill, halftone=halftone, transparency=transparency,
         line_weight=line_weight, visible=visible))
@@ -2259,16 +2231,8 @@ async def array_elements(ids: list[int], count: int, dx_m: float = 0, dy_m: floa
     return await _rpc("array_elements", ids=ids, count=count, dx_m=dx_m, dy_m=dy_m, dz_m=dz_m)
 
 
-@mcp.tool()
-async def create_group(ids: list[int], name: Optional[str] = None) -> dict:
-    """Agrupa elementos num grupo de modelo (ex.: banheiro típico, módulo de apartamento)."""
-    return await _rpc("create_group", **_clean(ids=ids, name=name))
 
 
-@mcp.tool()
-async def place_group(group_type: str, points: list[dict]) -> dict:
-    """Insere cópias de um grupo de modelo nos points [{x_m, y_m, z_m?}]."""
-    return await _rpc("place_group", group_type=group_type, points=points)
 
 
 @mcp.tool()

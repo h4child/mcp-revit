@@ -27,15 +27,15 @@ Servidor Python (FastMCP) ── token local ──► Add-in .NET no Revit
 
 | Área | Ferramentas |
 |---|---|
-| Dados do projeto | `get_project_info`, `set_project_info`, `get_project_location`, `list_phases`, `set_element_phase`, `create_workset`, `set_element_workset`, `list_project_parameters`, `add_project_parameter` |
+| Dados do projeto | `get_project_info`, `set_project_info`, `get_project_location`, `list_phases`, `set_element_phase`, `create_workset`, `set_element_workset`, `list_project_parameters`, `create_project_parameter` |
 | Consulta e edição em massa | `find_elements` (filtros por categoria, nível, tipo e parâmetros), `set_parameters_bulk` (instância ou tipo, numa transação) |
-| Vistas | `duplicate_view`, `set_view_properties`, `create_elevations`, `create_3d_view`, `create_drafting_view`, `create_view_filter`, `override_elements_in_view`, `set_category_visibility`, `tag_elements` |
+| Vistas | `duplicate_view`, `set_view_properties`, `create_elevations`, `create_3d_view`, `create_drafting_view`, `create_view_filter`/`apply_view_filter`, `create_rule_filter` (filtro com regras de parâmetro), `set_category_override`, `set_element_override`, `reset_overrides`, `override_elements_in_view`, `set_category_visibility`, `tag_elements` |
 | Documentação | `list_sheets`, `list_titleblocks`, `create_sheets`, `list_revisions`, `create_revision`, `add_revision_to_sheets`, `list_schedules`, `create_schedule_advanced`, `get_schedule_data` |
 | Exportação | `export_sheets_pdf`, `export_sheets_dwg`, `export_schedule_csv` |
 | Coordenação e qualidade | `analyze_clashes`, `analyze_quantities`, `analyze_material_takeoff`, `preview_purge_unused`, `purge_unused`, `list_links`, `load_revit_link`, `reload_link` |
 | Estrutura | `create_beam`, `create_foundation` (sapatas isoladas e corridas), além de `create_column` e `create_grid` |
 | MEP | `list_mep_types`, `create_mep_run` (dutos, tubos, eletrocalhas e eletrodutos com curvas), `create_spaces_from_rooms` |
-| Modelagem geral | `array_elements`, `create_group`, `place_group`, `create_room_separators` |
+| Modelagem geral | `array_elements`, `create_group`, `list_groups`, `place_group`, `create_room_separators` |
 
 Unidades: comprimentos em metros, áreas em m², volumes em m³ e ângulos em graus — inclusive ao ler ou gravar parâmetros (`find_elements`, `set_parameters_bulk`, `modify_parameters`). Outras grandezas usam a unidade de exibição do projeto, ou texto como `"25 mm"`, interpretado pelo Revit.
 
