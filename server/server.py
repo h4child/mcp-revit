@@ -218,6 +218,56 @@ async def list_families(category: Optional[str] = None) -> list:
 
 
 @mcp.tool()
+async def list_elements(category: str, limit: int = 100) -> dict:
+    """
+    Lista elementos de qualquer categoria do documento (ex.: 'Walls',
+    'Doors', 'Windows', 'Furniture'). Aceita o nome da BuiltInCategory
+    sem o prefixo 'OST_', ou os aliases usados em place_component
+    ('furniture', 'plumbing', 'casework', 'planting', 'parking', etc).
+    Use quando não houver um lister específico (list_walls, list_windows)
+    para a categoria desejada.
+    """
+    return await _rpc("list_elements", category=category, limit=limit)
+
+
+@mcp.tool()
+async def get_element(element_id: int) -> dict:
+    """
+    Retorna categoria, família, tipo, nível e todos os parâmetros
+    (com valores e se são somente-leitura) de um elemento qualquer pelo ID.
+    Use para inspecionar um elemento antes de modify_parameters ou
+    para investigar um ID retornado por list_elements/list_walls/etc.
+    """
+    return await _rpc("get_element", element_id=element_id)
+
+
+@mcp.tool()
+async def list_views() -> list:
+    """
+    Lista todas as vistas do projeto (id, nome, tipo, template aplicado).
+    Útil para localizar o ID de uma vista para place_view_on_sheet,
+    set_view_template ou screenshot.
+    """
+    return await _rpc("list_views")
+
+
+@mcp.tool()
+async def get_active_view() -> dict:
+    """Retorna id, nome, tipo e template da vista atualmente ativa na UI do Revit."""
+    return await _rpc("get_active_view")
+
+
+@mcp.tool()
+async def get_selection() -> dict:
+    """
+    Retorna os elementos atualmente selecionados pelo usuário na UI do Revit
+    (id, nome, categoria). Use para agir sobre o que o usuário selecionou
+    manualmente antes de chamar esta ferramenta.
+    """
+    return await _rpc("get_selection")
+
+
+@mcp.tool()
 async def list_materials(filtro: Optional[str] = None) -> list:
     """
     Lista os materiais disponíveis no projeto, com ID, nome e cor RGB.

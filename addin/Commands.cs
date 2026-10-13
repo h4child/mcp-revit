@@ -126,6 +126,13 @@ namespace RevitMcp
                     case "list_floor_types":return ListFloorTypes(uiApp);
                     case "list_families":   return ListFamilies(uiApp, req.args);
 
+                    // --- Introspecção genérica ---
+                    case "list_elements":   return ListElements(uiApp, req.args);
+                    case "get_element":     return GetElement(uiApp, req.args);
+                    case "list_views":      return ListViews(uiApp);
+                    case "get_active_view": return GetActiveView(uiApp);
+                    case "get_selection":   return GetSelection(uiApp);
+
                     // --- Projeto ---
                     case "new_project":     return NewProject(uiApp, req.args);
                     case "open_document":   return OpenDocument(uiApp, req.args);
@@ -681,6 +688,152 @@ namespace RevitMcp
                 .ThenBy(x => x.familia)
                 .Take(200)
                 .ToList();
+        }
+
+        /// <summary>
+        /// Resolve uma string de categoria (ex.: "Walls", "OST_Walls", "Doors")
+        /// para a BuiltInCategory correspondente. Tenta primeiro os aliases de
+        /// componentes (furniture, plumbing, etc.) e depois o nome direto do
+        /// enum, com e sem o prefixo "OST_".
+        /// </summary>
+        private static bool TryResolveAnyCategory(string category, out BuiltInCategory result)
+        {
+            if (TryResolveComponentCategory(category, out result)) return true;
+            if (Enum.TryParse(category, true, out result)) return true;
+            if (Enum.TryParse("OST_" + category, true, out result)) return true;
+            result = BuiltInCategory.INVALID;
+            return false;
+        }
+
+        /// <summary>
+        /// Lista elementos de qualquer categoria do documento (ex.: "Walls",
+        /// "Doors", "Furniture"). Para instâncias de família, inclui família,
+        /// tipo e nível; para outros elementos, apenas id/nome/categoria.
+        /// </summary>
+        private static object ListElements(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            string catStr = GetS(args, "category")
+                ?? throw new ArgumentException("Argumento obrigatório ausente: category");
+            if (!TryResolveAnyCategory(catStr, out var bic))
+                throw new ArgumentException($"Categoria desconhecida: {catStr}");
+            int limit = Math.Clamp((int)GetD(args, "limit", 100), 1, 1000);
+
+            var elementos = new FilteredElementCollector(doc)
+                .OfCategory(bic)
+                .WhereElementIsNotElementType()
+                .Take(limit)
+                .Select(e =>
+                {
+                    var fi = e as FamilyInstance;
+                    var levelId = e.LevelId;
+                    return new
+                    {
+                        id = e.Id.Value,
+                        nome = e.Name,
+                        categoria = e.Category?.Name,
+                        familia = fi?.Symbol?.Family?.Name,
+                        tipo = fi?.Symbol?.Name,
+                        nivel = (levelId != ElementId.InvalidElementId)
+                            ? (doc.GetElement(levelId) as Level)?.Name
+                            : null
+                    };
+                })
+                .ToList();
+            return new { quantidade = elementos.Count, elementos };
+        }
+
+        /// <summary>
+        /// Retorna os detalhes completos (categoria, tipo, nível, parâmetros)
+        /// de um elemento qualquer pelo ID.
+        /// </summary>
+        private static object GetElement(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var id = GetElementIdReq(args, "element_id");
+            var el = doc.GetElement(id) ?? throw new Exception($"Elemento {id.Value} não existe.");
+            var fi = el as FamilyInstance;
+            var levelId = el.LevelId;
+
+            var parametros = el.Parameters.Cast<Parameter>()
+                .Where(p => p.Definition != null)
+                .Select(p => new
+                {
+                    nome = p.Definition.Name,
+                    valor = p.AsValueString() ?? (p.StorageType == StorageType.String ? p.AsString() : null),
+                    tipo_armazenamento = p.StorageType.ToString(),
+                    somente_leitura = p.IsReadOnly
+                })
+                .OrderBy(p => p.nome)
+                .ToList();
+
+            return new
+            {
+                id = el.Id.Value,
+                nome = el.Name,
+                categoria = el.Category?.Name,
+                familia = fi?.Symbol?.Family?.Name,
+                tipo = fi?.Symbol?.Name,
+                nivel = (levelId != ElementId.InvalidElementId)
+                    ? (doc.GetElement(levelId) as Level)?.Name
+                    : null,
+                parametros
+            };
+        }
+
+        /// <summary>Lista todas as vistas do projeto (id, nome, tipo, template aplicado).</summary>
+        private static object ListViews(UIApplication uiApp)
+        {
+            var doc = RequireDoc(uiApp);
+            return new FilteredElementCollector(doc)
+                .OfClass(typeof(View))
+                .Cast<View>()
+                .Where(v => !v.IsTemplate)
+                .Select(v => new
+                {
+                    id = v.Id.Value,
+                    nome = v.Name,
+                    tipo = v.ViewType.ToString(),
+                    template = (v.ViewTemplateId != ElementId.InvalidElementId)
+                        ? doc.GetElement(v.ViewTemplateId)?.Name
+                        : null
+                })
+                .OrderBy(v => v.tipo).ThenBy(v => v.nome)
+                .ToList();
+        }
+
+        /// <summary>Retorna informações da vista atualmente ativa na UI do Revit.</summary>
+        private static object GetActiveView(UIApplication uiApp)
+        {
+            var uidoc = uiApp.ActiveUIDocument ?? throw new Exception("Nenhum documento ativo.");
+            var view = uidoc.ActiveView;
+            return new
+            {
+                id = view.Id.Value,
+                nome = view.Name,
+                tipo = view.ViewType.ToString(),
+                template = (view.ViewTemplateId != ElementId.InvalidElementId)
+                    ? uidoc.Document.GetElement(view.ViewTemplateId)?.Name
+                    : null
+            };
+        }
+
+        /// <summary>Retorna os elementos atualmente selecionados na UI do Revit.</summary>
+        private static object GetSelection(UIApplication uiApp)
+        {
+            var uidoc = uiApp.ActiveUIDocument ?? throw new Exception("Nenhum documento ativo.");
+            var doc = uidoc.Document;
+            var elementos = uidoc.Selection.GetElementIds()
+                .Select(id => doc.GetElement(id))
+                .Where(e => e != null)
+                .Select(e => new
+                {
+                    id = e.Id.Value,
+                    nome = e.Name,
+                    categoria = e.Category?.Name
+                })
+                .ToList();
+            return new { quantidade = elementos.Count, elementos };
         }
 
         // =====================================================================
