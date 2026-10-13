@@ -61,7 +61,7 @@ PowerShell -ExecutionPolicy Bypass -File .\reload-revit-mcp.ps1 `
   -ProjectPath 'C:\Projetos\modelo.rvt'
 ```
 
-O manifesto instalado é gerado em `%APPDATA%\Autodesk\Revit\Addins\2025\RevitMcp.addin`; ele não faz parte do Git.
+O manifesto instalado é gerado em `%APPDATA%\Autodesk\Revit\Addins\2025\RevitMcp.addin` e, quando a permissão do sistema permitir, também em `%ProgramData%\Autodesk\Revit\Addins\2025\RevitMcp.addin` (algumas políticas de complemento só reconhecem o local de todos os usuários). Nenhum dos dois faz parte do Git.
 
 ## Executar o servidor MCP
 
