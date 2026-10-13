@@ -273,6 +273,21 @@ namespace RevitMcp
                     case "get_element_worksharing_info": return GetElementWorksharingInfo(uiApp, req.args);
                     case "list_audit_log": return ListAuditLog(uiApp, req.args);
 
+                    // --- Parâmetros de projeto, filtros, fases, grupos, V/G (Onda 8) ---
+                    case "create_project_parameter": return CreateProjectParameter(uiApp, req.args);
+                    case "list_project_parameters":  return ListProjectParameters(uiApp);
+                    case "create_view_filter": return CreateViewFilter(uiApp, req.args);
+                    case "list_view_filters":  return ListViewFilters(uiApp);
+                    case "apply_view_filter":  return ApplyViewFilter(uiApp, req.args);
+                    case "list_phases":        return ListPhases(uiApp);
+                    case "set_element_phase":   return SetElementPhase(uiApp, req.args);
+                    case "create_group":        return CreateGroup(uiApp, req.args);
+                    case "list_groups":         return ListGroups(uiApp);
+                    case "place_group":         return PlaceGroup(uiApp, req.args);
+                    case "set_category_override": return SetCategoryOverride(uiApp, req.args);
+                    case "set_element_override":   return SetElementOverride(uiApp, req.args);
+                    case "reset_overrides":        return ResetOverrides(uiApp, req.args);
+
                     default:
                         throw new Exception($"Comando desconhecido: {req.cmd}");
                 }
@@ -5331,6 +5346,450 @@ namespace RevitMcp
             options.SetFailuresPreprocessor(new McpWarningPreprocessor());
             options.SetClearAfterRollback(true);
             tx.SetFailureHandlingOptions(options);
+        }
+
+        // =====================================================================
+        // PARÂMETROS DE PROJETO (Onda 8)
+        // =====================================================================
+
+        private const string McpSharedParamGroupName = "RevitMCP";
+
+        /// <summary>
+        /// Garante um arquivo de parâmetros compartilhados local e o configura
+        /// na Application. Necessário porque a API do Revit só cria parâmetros
+        /// de projeto a partir de uma ExternalDefinition vinda desse arquivo.
+        /// </summary>
+        private static DefinitionFile EnsureSharedParameterFile(Autodesk.Revit.ApplicationServices.Application app)
+        {
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RevitMcp");
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, "shared_params.txt");
+            if (!File.Exists(path)) File.WriteAllText(path, string.Empty);
+            app.SharedParametersFilename = path;
+            var file = app.OpenSharedParameterFile();
+            if (file == null) throw new Exception("Não foi possível abrir/criar o arquivo de parâmetros compartilhados.");
+            return file;
+        }
+
+        private static ForgeTypeId ResolveParamSpec(string tipo)
+        {
+            switch (Normalizar(tipo ?? "text"))
+            {
+                case "text": case "texto": return SpecTypeId.String.Text;
+                case "number": case "numero": case "double": return SpecTypeId.Number;
+                case "integer": case "inteiro": return SpecTypeId.Int.Integer;
+                case "yesno": case "boolean": case "simnao": return SpecTypeId.Boolean.YesNo;
+                case "length": case "comprimento": return SpecTypeId.Length;
+                case "area": return SpecTypeId.Area;
+                case "volume": return SpecTypeId.Volume;
+                default: throw new ArgumentException($"Tipo de parâmetro desconhecido: {tipo}. Use text, number, integer, yesno, length, area ou volume.");
+            }
+        }
+
+        /// <summary>
+        /// Cria (ou reaproveita) um parâmetro de projeto vinculado às categorias
+        /// informadas. Usa um arquivo de parâmetros compartilhados local próprio
+        /// do MCP — não interfere no arquivo de parâmetros compartilhados da
+        /// empresa, se houver um configurado no Revit.
+        /// </summary>
+        private static object CreateProjectParameter(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            string name = GetS(args, "name") ?? throw new ArgumentException("Argumento obrigatório ausente: name");
+            string specStr = GetS(args, "type", "text");
+            bool instanceBinding = !(args.ValueKind == JsonValueKind.Object && args.TryGetProperty("instance", out var ib) && ib.ValueKind == JsonValueKind.False);
+            string groupTab = GetS(args, "group", "data");
+
+            if (!args.TryGetProperty("categories", out var catsArg) || catsArg.ValueKind != JsonValueKind.Array || catsArg.GetArrayLength() == 0)
+                throw new ArgumentException("Argumento obrigatório ausente: categories (lista de nomes de categoria)");
+
+            var categorySet = new CategorySet();
+            var nomesCategorias = new List<string>();
+            foreach (var catEl in catsArg.EnumerateArray())
+            {
+                string catStr = catEl.GetString();
+                if (!TryResolveAnyCategory(catStr, out var bic))
+                    throw new ArgumentException($"Categoria desconhecida: {catStr}");
+                var categoria = Category.GetCategory(doc, bic)
+                    ?? throw new Exception($"Categoria '{catStr}' não existe neste documento.");
+                categorySet.Insert(categoria);
+                nomesCategorias.Add(categoria.Name);
+            }
+
+            var app = uiApp.Application;
+            var specTypeId = ResolveParamSpec(specStr);
+            var file = EnsureSharedParameterFile(app);
+            var group = file.Groups.get_Item(McpSharedParamGroupName) ?? file.Groups.Create(McpSharedParamGroupName);
+            var def = group.Definitions.get_Item(name) as ExternalDefinition;
+            if (def == null)
+            {
+                var options = new ExternalDefinitionCreationOptions(name, specTypeId);
+                def = group.Definitions.Create(options) as ExternalDefinition;
+            }
+            if (def == null) throw new Exception("Falha ao criar a definição do parâmetro compartilhado.");
+
+            var groupTypeId = Normalizar(groupTab) switch
+            {
+                "data" or "dados" => GroupTypeId.Data,
+                "text" or "texto" => GroupTypeId.Text,
+                "identitydata" or "identidade" => GroupTypeId.IdentityData,
+                "geometry" or "geometria" => GroupTypeId.Geometry,
+                "general" or "geral" => GroupTypeId.General,
+                _ => GroupTypeId.Data
+            };
+
+            using (var tx = new Transaction(doc, "MCP: Criar parâmetro de projeto"))
+            {
+                tx.Start();
+                ConfigureAutomaticWarningHandling(tx);
+                Binding bindingObj = instanceBinding
+                    ? new InstanceBinding(categorySet)
+                    : new TypeBinding(categorySet);
+                bool inserted = doc.ParameterBindings.Contains(def)
+                    ? doc.ParameterBindings.ReInsert(def, bindingObj, groupTypeId)
+                    : doc.ParameterBindings.Insert(def, bindingObj, groupTypeId);
+                tx.Commit();
+                if (!inserted) throw new Exception("O Revit rejeitou a vinculação do parâmetro às categorias informadas.");
+            }
+
+            return new { nome = name, tipo = specStr, instancia = instanceBinding, categorias = nomesCategorias };
+        }
+
+        /// <summary>Lista os parâmetros de projeto já vinculados no documento.</summary>
+        private static object ListProjectParameters(UIApplication uiApp)
+        {
+            var doc = RequireDoc(uiApp);
+            var resultado = new List<object>();
+            var it = doc.ParameterBindings.ForwardIterator();
+            it.Reset();
+            while (it.MoveNext())
+            {
+                try
+                {
+                    var def = it.Key as InternalDefinition;
+                    var binding = it.Current as ElementBinding;
+                    if (def == null || binding == null) continue;
+                    var categorias = binding.Categories.Cast<Category>().Select(c => c.Name).ToList();
+                    resultado.Add(new
+                    {
+                        nome = def.Name,
+                        instancia = binding is InstanceBinding,
+                        categorias
+                    });
+                }
+                catch { }
+            }
+            return resultado;
+        }
+
+        // =====================================================================
+        // FILTROS DE VISTA (Onda 8)
+        // =====================================================================
+
+        /// <summary>Cria um filtro de vista (ParameterFilterElement) por categorias, sem regras — útil para controlar visibilidade/overrides de um conjunto de categorias de uma vez.</summary>
+        private static object CreateViewFilter(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            string name = GetS(args, "name") ?? throw new ArgumentException("Argumento obrigatório ausente: name");
+            if (!args.TryGetProperty("categories", out var catsArg) || catsArg.ValueKind != JsonValueKind.Array || catsArg.GetArrayLength() == 0)
+                throw new ArgumentException("Argumento obrigatório ausente: categories");
+
+            var categoryIds = new List<ElementId>();
+            var nomesCategorias = new List<string>();
+            foreach (var catEl in catsArg.EnumerateArray())
+            {
+                string catStr = catEl.GetString();
+                if (!TryResolveAnyCategory(catStr, out var bic))
+                    throw new ArgumentException($"Categoria desconhecida: {catStr}");
+                var categoria = Category.GetCategory(doc, bic)
+                    ?? throw new Exception($"Categoria '{catStr}' não existe neste documento.");
+                categoryIds.Add(categoria.Id);
+                nomesCategorias.Add(categoria.Name);
+            }
+
+            var existente = new FilteredElementCollector(doc).OfClass(typeof(ParameterFilterElement))
+                .Cast<ParameterFilterElement>().FirstOrDefault(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+            ElementId filterId;
+            using (var tx = new Transaction(doc, "MCP: Criar filtro de vista"))
+            {
+                tx.Start();
+                ConfigureAutomaticWarningHandling(tx);
+                if (existente != null)
+                {
+                    existente.SetCategories(categoryIds);
+                    filterId = existente.Id;
+                }
+                else
+                {
+                    var filtro = ParameterFilterElement.Create(doc, name, categoryIds);
+                    filterId = filtro.Id;
+                }
+                tx.Commit();
+            }
+            return new { id = filterId.Value, nome = name, categorias = nomesCategorias };
+        }
+
+        /// <summary>Lista os filtros de vista (ParameterFilterElement) disponíveis no projeto.</summary>
+        private static object ListViewFilters(UIApplication uiApp)
+        {
+            var doc = RequireDoc(uiApp);
+            return new FilteredElementCollector(doc).OfClass(typeof(ParameterFilterElement))
+                .Cast<ParameterFilterElement>()
+                .Select(f => new
+                {
+                    id = f.Id.Value,
+                    nome = f.Name,
+                    categorias = f.GetCategories().Select(cid => (Category.GetCategory(doc, cid))?.Name).Where(n => n != null).ToList()
+                })
+                .ToList();
+        }
+
+        /// <summary>Aplica um filtro de vista já existente a uma vista: visibilidade e, opcionalmente, cor de linha de projeção.</summary>
+        private static object ApplyViewFilter(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var viewId = GetElementIdReq(args, "view_id");
+            string filterName = GetS(args, "filter_name") ?? throw new ArgumentException("Argumento obrigatório ausente: filter_name");
+            bool visible = !(args.ValueKind == JsonValueKind.Object && args.TryGetProperty("visible", out var vv) && vv.ValueKind == JsonValueKind.False);
+            string colorStr = GetS(args, "color");
+
+            var view = doc.GetElement(viewId) as View ?? throw new Exception("Vista não encontrada.");
+            var filtro = new FilteredElementCollector(doc).OfClass(typeof(ParameterFilterElement))
+                .Cast<ParameterFilterElement>().FirstOrDefault(f => f.Name.Equals(filterName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new Exception($"Filtro '{filterName}' não encontrado. Use create_view_filter primeiro.");
+
+            using (var tx = new Transaction(doc, "MCP: Aplicar filtro de vista"))
+            {
+                tx.Start();
+                ConfigureAutomaticWarningHandling(tx);
+                if (!view.GetFilters().Contains(filtro.Id)) view.AddFilter(filtro.Id);
+                view.SetFilterVisibility(filtro.Id, visible);
+                if (!string.IsNullOrEmpty(colorStr))
+                {
+                    var overrides = view.GetFilterOverrides(filtro.Id);
+                    var cor = ParseMcpColor(colorStr);
+                    overrides.SetProjectionLineColor(cor);
+                    overrides.SetCutLineColor(cor);
+                    view.SetFilterOverrides(filtro.Id, overrides);
+                }
+                tx.Commit();
+            }
+            return new { view_id = viewId.Value, filtro = filterName, visivel = visible };
+        }
+
+        // =====================================================================
+        // FASES (Onda 8)
+        // =====================================================================
+
+        /// <summary>Lista as fases do projeto (ordem define a sequência construtiva).</summary>
+        private static object ListPhases(UIApplication uiApp)
+        {
+            var doc = RequireDoc(uiApp);
+            var resultado = new List<object>();
+            foreach (Phase fase in doc.Phases)
+                resultado.Add(new { id = fase.Id.Value, nome = fase.Name });
+            return resultado;
+        }
+
+        /// <summary>Define a fase de criação e/ou demolição de um elemento.</summary>
+        private static object SetElementPhase(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var id = GetElementIdReq(args, "element_id");
+            var el = doc.GetElement(id) ?? throw new Exception($"Elemento {id.Value} não existe.");
+            string criadaNome = GetS(args, "phase_created");
+            string demolidaNome = GetS(args, "phase_demolished");
+
+            Phase AcharFase(string nome)
+            {
+                foreach (Phase f in doc.Phases) if (f.Name.Equals(nome, StringComparison.OrdinalIgnoreCase)) return f;
+                return null;
+            }
+
+            using (var tx = new Transaction(doc, "MCP: Definir fase do elemento"))
+            {
+                tx.Start();
+                ConfigureAutomaticWarningHandling(tx);
+                if (!string.IsNullOrEmpty(criadaNome))
+                {
+                    var fase = AcharFase(criadaNome) ?? throw new Exception($"Fase '{criadaNome}' não encontrada.");
+                    el.get_Parameter(BuiltInParameter.PHASE_CREATED)?.Set(fase.Id);
+                }
+                if (!string.IsNullOrEmpty(demolidaNome))
+                {
+                    var fase = AcharFase(demolidaNome) ?? throw new Exception($"Fase '{demolidaNome}' não encontrada.");
+                    el.get_Parameter(BuiltInParameter.PHASE_DEMOLISHED)?.Set(fase.Id);
+                }
+                tx.Commit();
+            }
+            return new { id = id.Value, fase_criada = criadaNome, fase_demolida = demolidaNome };
+        }
+
+        // =====================================================================
+        // GRUPOS (Onda 8)
+        // =====================================================================
+
+        /// <summary>Agrupa elementos existentes em um Group de modelo.</summary>
+        private static object CreateGroup(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            if (!args.TryGetProperty("element_ids", out var idsArg) || idsArg.ValueKind != JsonValueKind.Array || idsArg.GetArrayLength() < 1)
+                throw new ArgumentException("Argumento obrigatório ausente: element_ids (lista com ao menos 1 id)");
+            string name = GetS(args, "name");
+
+            var ids = new List<ElementId>();
+            foreach (var idEl in idsArg.EnumerateArray()) ids.Add(new ElementId(idEl.GetInt64()));
+
+            Group grupo;
+            using (var tx = new Transaction(doc, "MCP: Criar grupo"))
+            {
+                tx.Start();
+                ConfigureAutomaticWarningHandling(tx);
+                grupo = doc.Create.NewGroup(ids);
+                if (!string.IsNullOrEmpty(name))
+                {
+                    try { grupo.GroupType.Name = name; } catch { }
+                }
+                tx.Commit();
+            }
+            return new { id = grupo.Id.Value, nome = grupo.GroupType?.Name, elementos = ids.Select(i => i.Value).ToList() };
+        }
+
+        /// <summary>Lista os tipos de grupo de modelo disponíveis (para reaproveitar com place_group).</summary>
+        private static object ListGroups(UIApplication uiApp)
+        {
+            var doc = RequireDoc(uiApp);
+            return new FilteredElementCollector(doc).OfClass(typeof(GroupType))
+                .Cast<GroupType>()
+                .Where(g => g.Category != null && g.Category.Id.Value == (long)BuiltInCategory.OST_IOSModelGroups)
+                .Select(g => new
+                {
+                    id = g.Id.Value,
+                    nome = g.Name,
+                    instancias = new FilteredElementCollector(doc).OfClass(typeof(Group)).Cast<Group>().Count(gr => gr.GroupType.Id == g.Id)
+                })
+                .ToList();
+        }
+
+        /// <summary>Posiciona uma nova instância de um GroupType existente (por id ou nome) em um ponto.</summary>
+        private static object PlaceGroup(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            double x = GetDReq(args, "x_m"), y = GetDReq(args, "y_m"), z = GetD(args, "z_m", 0);
+            string name = GetS(args, "name");
+            long? groupTypeIdArg = (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("group_type_id", out var gtv) && gtv.ValueKind == JsonValueKind.Number)
+                ? gtv.GetInt64() : (long?)null;
+
+            GroupType tipo = null;
+            if (groupTypeIdArg.HasValue) tipo = doc.GetElement(new ElementId(groupTypeIdArg.Value)) as GroupType;
+            if (tipo == null && !string.IsNullOrEmpty(name))
+                tipo = new FilteredElementCollector(doc).OfClass(typeof(GroupType)).Cast<GroupType>()
+                    .FirstOrDefault(g => g.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (tipo == null) throw new Exception("GroupType não encontrado. Informe group_type_id ou name de um grupo já criado (ver list_groups).");
+
+            Group instancia;
+            using (var tx = new Transaction(doc, "MCP: Posicionar grupo"))
+            {
+                tx.Start();
+                ConfigureAutomaticWarningHandling(tx);
+                instancia = doc.Create.PlaceGroup(new XYZ(MToFt(x), MToFt(y), MToFt(z)), tipo);
+                tx.Commit();
+            }
+            return new { id = instancia.Id.Value, tipo = tipo.Name };
+        }
+
+        // =====================================================================
+        // OVERRIDES DE VISIBILIDADE/GRÁFICOS (Onda 8)
+        // =====================================================================
+
+        private static OverrideGraphicSettings BuildOverrides(string colorStr, int? lineWeight, bool? halftone)
+        {
+            var overrides = new OverrideGraphicSettings();
+            if (!string.IsNullOrEmpty(colorStr))
+            {
+                var cor = ParseMcpColor(colorStr);
+                overrides.SetProjectionLineColor(cor);
+                overrides.SetCutLineColor(cor);
+                overrides.SetSurfaceForegroundPatternColor(cor);
+            }
+            if (lineWeight.HasValue)
+            {
+                overrides.SetProjectionLineWeight(lineWeight.Value);
+                overrides.SetCutLineWeight(lineWeight.Value);
+            }
+            if (halftone.HasValue) overrides.SetHalftone(halftone.Value);
+            return overrides;
+        }
+
+        /// <summary>Aplica override gráfico (cor/peso de linha/meio-tom) a uma categoria inteira em uma vista.</summary>
+        private static object SetCategoryOverride(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var viewId = GetElementIdReq(args, "view_id");
+            string catStr = GetS(args, "category") ?? throw new ArgumentException("Argumento obrigatório ausente: category");
+            if (!TryResolveAnyCategory(catStr, out var bic)) throw new ArgumentException($"Categoria desconhecida: {catStr}");
+            string colorStr = GetS(args, "color");
+            int? lineWeight = (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("line_weight", out var lw) && lw.ValueKind == JsonValueKind.Number) ? lw.GetInt32() : (int?)null;
+            bool? halftone = (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("halftone", out var ht) && (ht.ValueKind == JsonValueKind.True || ht.ValueKind == JsonValueKind.False)) ? ht.GetBoolean() : (bool?)null;
+
+            var view = doc.GetElement(viewId) as View ?? throw new Exception("Vista não encontrada.");
+            var categoria = Category.GetCategory(doc, bic) ?? throw new Exception($"Categoria '{catStr}' não existe neste documento.");
+
+            using (var tx = new Transaction(doc, "MCP: Override de categoria"))
+            {
+                tx.Start();
+                view.SetCategoryOverrides(categoria.Id, BuildOverrides(colorStr, lineWeight, halftone));
+                tx.Commit();
+            }
+            return new { view_id = viewId.Value, categoria = categoria.Name };
+        }
+
+        /// <summary>Aplica override gráfico a um elemento específico em uma vista (sobrepõe o override de categoria).</summary>
+        private static object SetElementOverride(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var viewId = GetElementIdReq(args, "view_id");
+            var elementId = GetElementIdReq(args, "element_id");
+            string colorStr = GetS(args, "color");
+            int? lineWeight = (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("line_weight", out var lw) && lw.ValueKind == JsonValueKind.Number) ? lw.GetInt32() : (int?)null;
+            bool? halftone = (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("halftone", out var ht) && (ht.ValueKind == JsonValueKind.True || ht.ValueKind == JsonValueKind.False)) ? ht.GetBoolean() : (bool?)null;
+
+            var view = doc.GetElement(viewId) as View ?? throw new Exception("Vista não encontrada.");
+            var el = doc.GetElement(elementId) ?? throw new Exception($"Elemento {elementId.Value} não existe.");
+
+            using (var tx = new Transaction(doc, "MCP: Override de elemento"))
+            {
+                tx.Start();
+                view.SetElementOverrides(elementId, BuildOverrides(colorStr, lineWeight, halftone));
+                tx.Commit();
+            }
+            return new { view_id = viewId.Value, element_id = elementId.Value, nome = el.Name };
+        }
+
+        /// <summary>Remove overrides de categoria e/ou de elemento em uma vista, restaurando a aparência padrão.</summary>
+        private static object ResetOverrides(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var viewId = GetElementIdReq(args, "view_id");
+            var view = doc.GetElement(viewId) as View ?? throw new Exception("Vista não encontrada.");
+            string catStr = GetS(args, "category");
+            long? elementIdArg = (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("element_id", out var ev) && ev.ValueKind == JsonValueKind.Number) ? ev.GetInt64() : (long?)null;
+
+            using (var tx = new Transaction(doc, "MCP: Resetar overrides"))
+            {
+                tx.Start();
+                if (!string.IsNullOrEmpty(catStr))
+                {
+                    if (!TryResolveAnyCategory(catStr, out var bic)) throw new ArgumentException($"Categoria desconhecida: {catStr}");
+                    var categoria = Category.GetCategory(doc, bic) ?? throw new Exception($"Categoria '{catStr}' não existe neste documento.");
+                    view.SetCategoryOverrides(categoria.Id, new OverrideGraphicSettings());
+                }
+                if (elementIdArg.HasValue)
+                    view.SetElementOverrides(new ElementId(elementIdArg.Value), new OverrideGraphicSettings());
+                tx.Commit();
+            }
+            return new { view_id = viewId.Value, categoria = catStr, element_id = elementIdArg };
         }
     }
 

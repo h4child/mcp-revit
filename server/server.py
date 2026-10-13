@@ -1417,6 +1417,134 @@ async def list_audit_log(limit: int = 50) -> dict:
 
 
 @mcp.tool()
+async def create_project_parameter(name: str, categories: list, type: str = "text", instance: bool = True,
+                                    group: str = "data") -> dict:
+    """
+    Cria um parâmetro de projeto vinculado a categorias (ex.: categories=["Walls","Doors"]).
+    type: text, number, integer, yesno, length, area ou volume.
+    instance=True vincula por instância; False vincula por tipo.
+    group: aba das Propriedades onde aparece (data, text, identitydata, geometry, general).
+    Usa um arquivo de parâmetros compartilhados local próprio do MCP.
+    """
+    return await _rpc("create_project_parameter", name=name, categories=categories, type=type,
+                       instance=instance, group=group)
+
+
+@mcp.tool()
+async def list_project_parameters() -> list:
+    """Lista os parâmetros de projeto já vinculados no documento (nome, instância/tipo, categorias)."""
+    return await _rpc("list_project_parameters")
+
+
+@mcp.tool()
+async def create_view_filter(name: str, categories: list) -> dict:
+    """Cria um filtro de vista (ParameterFilterElement) por categorias, sem regras de parâmetro.
+    Use com apply_view_filter para controlar visibilidade/aparência de um conjunto de categorias de uma vez."""
+    return await _rpc("create_view_filter", name=name, categories=categories)
+
+
+@mcp.tool()
+async def list_view_filters() -> list:
+    """Lista os filtros de vista (ParameterFilterElement) disponíveis no projeto."""
+    return await _rpc("list_view_filters")
+
+
+@mcp.tool()
+async def apply_view_filter(view_id: int, filter_name: str, visible: bool = True,
+                             color: Optional[str] = None) -> dict:
+    """Aplica um filtro já criado (create_view_filter) a uma vista: visibilidade e, opcionalmente,
+    cor de linha (#RRGGBB ou R,G,B) para os elementos que casam com o filtro nessa vista."""
+    args = {"view_id": view_id, "filter_name": filter_name, "visible": visible}
+    if color:
+        args["color"] = color
+    return await _rpc("apply_view_filter", **args)
+
+
+@mcp.tool()
+async def list_phases() -> list:
+    """Lista as fases do projeto (id, nome), na ordem da sequência construtiva."""
+    return await _rpc("list_phases")
+
+
+@mcp.tool()
+async def set_element_phase(element_id: int, phase_created: Optional[str] = None,
+                             phase_demolished: Optional[str] = None) -> dict:
+    """Define a fase de criação e/ou demolição de um elemento (nomes de fases de list_phases)."""
+    args = {"element_id": element_id}
+    if phase_created:
+        args["phase_created"] = phase_created
+    if phase_demolished:
+        args["phase_demolished"] = phase_demolished
+    return await _rpc("set_element_phase", **args)
+
+
+@mcp.tool()
+async def create_group(element_ids: list, name: Optional[str] = None) -> dict:
+    """Agrupa elementos existentes (pelos IDs) em um grupo de modelo. Reutilize com place_group."""
+    args = {"element_ids": element_ids}
+    if name:
+        args["name"] = name
+    return await _rpc("create_group", **args)
+
+
+@mcp.tool()
+async def list_groups() -> list:
+    """Lista os tipos de grupo de modelo já criados (id, nome, quantidade de instâncias no projeto)."""
+    return await _rpc("list_groups")
+
+
+@mcp.tool()
+async def place_group(x_m: float, y_m: float, name: Optional[str] = None,
+                       group_type_id: Optional[int] = None, z_m: float = 0) -> dict:
+    """Posiciona uma nova instância de um grupo já existente (por group_type_id ou name de list_groups)."""
+    args = {"x_m": x_m, "y_m": y_m, "z_m": z_m}
+    if name:
+        args["name"] = name
+    if group_type_id:
+        args["group_type_id"] = group_type_id
+    return await _rpc("place_group", **args)
+
+
+@mcp.tool()
+async def set_category_override(view_id: int, category: str, color: Optional[str] = None,
+                                 line_weight: Optional[int] = None, halftone: Optional[bool] = None) -> dict:
+    """Aplica override gráfico (cor/peso de linha/meio-tom) a uma categoria inteira em uma vista."""
+    args = {"view_id": view_id, "category": category}
+    if color:
+        args["color"] = color
+    if line_weight is not None:
+        args["line_weight"] = line_weight
+    if halftone is not None:
+        args["halftone"] = halftone
+    return await _rpc("set_category_override", **args)
+
+
+@mcp.tool()
+async def set_element_override(view_id: int, element_id: int, color: Optional[str] = None,
+                                line_weight: Optional[int] = None, halftone: Optional[bool] = None) -> dict:
+    """Aplica override gráfico a um elemento específico em uma vista (sobrepõe o override de categoria)."""
+    args = {"view_id": view_id, "element_id": element_id}
+    if color:
+        args["color"] = color
+    if line_weight is not None:
+        args["line_weight"] = line_weight
+    if halftone is not None:
+        args["halftone"] = halftone
+    return await _rpc("set_element_override", **args)
+
+
+@mcp.tool()
+async def reset_overrides(view_id: int, category: Optional[str] = None, element_id: Optional[int] = None) -> dict:
+    """Remove overrides de categoria e/ou de elemento em uma vista, restaurando a aparência padrão."""
+    args = {"view_id": view_id}
+    if category:
+        args["category"] = category
+    if element_id is not None:
+        args["element_id"] = element_id
+    return await _rpc("reset_overrides", **args)
+
+
+@mcp.tool()
 async def create_filled_region(x1_m: float, y1_m: float, x2_m: float, y2_m: float) -> dict:
     """Cria região preenchida (hachura) num retângulo na vista ativa."""
     return await _rpc("create_filled_region", x1_m=x1_m, y1_m=y1_m, x2_m=x2_m, y2_m=y2_m)
