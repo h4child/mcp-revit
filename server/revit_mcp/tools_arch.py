@@ -232,3 +232,15 @@ async def export_images(view_ids: Optional[list[int]] = None, folder: Optional[s
     """Exporta vistas/pranchas como imagens (PNG ou JPG) em lote para apresentações,
     retornando os arquivos gerados. Padrão: vista ativa."""
     return await _rpc("export_images", **_clean(view_ids=view_ids, folder=folder, pixels=pixels, format=format, prefix=prefix))
+
+
+# --- Auditoria -------------------------------------------------------------------
+
+@mcp.tool()
+async def audit_project_setup() -> dict:
+    """Checklist do projeto arquitetônico com nota de 0 a 100: informações do projeto,
+    arquivo salvo, norte, níveis/plantas/eixos fixados, paredes com tipos definidos,
+    pisos, cobertura, esquadrias, avisos, ambientes (delimitados, únicos, nomeados,
+    acabamentos), quadro de áreas, numeração de portas/janelas, cortes, elevações,
+    pranchas, tabelas e revisões. Cada item pendente indica a ferramenta que corrige."""
+    return await _rpc("audit_project_setup")

@@ -814,6 +814,10 @@
     {
       "name": "export_images",
       "description": "Exporta vistas/pranchas como imagens (PNG ou JPG) em lote para apresentações, retornando os arquivos gerados."
+    },
+    {
+      "name": "audit_project_setup",
+      "description": "Checklist do projeto arquitetônico com nota de 0 a 100: informações do projeto, arquivo salvo, norte, níveis/plantas/eixos fixados, paredes com tipos..."
     }
   ],
   "keywords": [

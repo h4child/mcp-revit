@@ -15,6 +15,7 @@
 //   • Modelagem: inverter portas/janelas, abertura em laje, unir geometria,
 //     anexar topo/base de paredes e norte verdadeiro.
 //   • Produção: numeração automática e exportação de imagens em lote.
+//   • Auditoria da configuração do projeto arquitetônico (checklist com nota).
 //
 // Regra de estabilidade (ver d618f8e): nunca encadear LINQ diretamente sobre
 // coleções antigas da API (ParameterSet, PhaseArray, *Array, *Set); usar
@@ -72,6 +73,9 @@ namespace RevitMcp
                 // --- Produção ---
                 case "renumber_elements":    return RenumberElements(uiApp, a);
                 case "export_images":        return ExportImages(uiApp, a);
+
+                // --- Auditoria ---
+                case "audit_project_setup":  return AuditProjectSetup(uiApp);
 
                 default:
                     throw new ArgumentException($"Comando desconhecido: {req.cmd}");
@@ -1181,6 +1185,122 @@ namespace RevitMcp
             var arquivos = System.IO.Directory.GetFiles(folder).Where(f => !before.Contains(f))
                 .Select(f => new { arquivo = f, tamanho_kb = new System.IO.FileInfo(f).Length / 1024 }).ToList();
             return new { pasta = folder, largura_px = pixels, vistas = views.Select(v => v.Name).ToList(), arquivos };
+        }
+
+        // =====================================================================
+        // AUDITORIA DA CONFIGURAÇÃO DO PROJETO
+        // =====================================================================
+
+        /// <summary>
+        /// Checklist do fluxo de arquitetura (template → níveis/eixos → modelo →
+        /// ambientes → documentação). Cada item traz status, evidência e a
+        /// ferramenta que corrige. Somente leitura.
+        /// </summary>
+        private static object AuditProjectSetup(UIApplication uiApp)
+        {
+            var doc = RequireDoc(uiApp);
+            var itens = new List<object>();
+            int ok = 0, total = 0, criticas = 0;
+            void Item(string etapa, string verificacao, bool passou, string evidencia, string correcao, bool critico = false)
+            {
+                total++; if (passou) ok++; else if (critico) criticas++;
+                itens.Add(new { etapa, verificacao, status = passou ? "ok" : critico ? "falha" : "atencao", evidencia, correcao = passou ? null : correcao });
+            }
+            List<Element> Inst(BuiltInCategory bic) => new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType().ToElements().ToList();
+
+            // 1. Dados do projeto
+            var pi = doc.ProjectInformation;
+            var vazios = new List<string>();
+            if (string.IsNullOrWhiteSpace(pi.Name) || pi.Name == "Project Name" || pi.Name == "Nome do projeto") vazios.Add("nome");
+            if (string.IsNullOrWhiteSpace(pi.Number) || pi.Number == "Project Number" || pi.Number == "Número do projeto") vazios.Add("número");
+            if (string.IsNullOrWhiteSpace(pi.ClientName) || pi.ClientName == "Owner") vazios.Add("cliente");
+            if (string.IsNullOrWhiteSpace(pi.Address) || pi.Address == "Enter address here") vazios.Add("endereço");
+            Item("Projeto", "Informações do projeto preenchidas (carimbo)", vazios.Count == 0,
+                vazios.Count == 0 ? "nome, número, cliente e endereço preenchidos" : "faltando: " + string.Join(", ", vazios), "set_project_info");
+            Item("Projeto", "Arquivo salvo em disco", !string.IsNullOrEmpty(doc.PathName), doc.PathName ?? "nunca salvo", "save_as", critico: true);
+            double north = 0;
+            try { north = doc.ActiveProjectLocation.GetProjectPosition(XYZ.Zero).Angle * 180 / Math.PI; } catch { }
+            Item("Projeto", "Norte verdadeiro definido", Math.Abs(north) > 1e-6, $"ângulo atual {Math.Round(north, 2)}°", "set_true_north (se o terreno não estiver alinhado ao norte)");
+
+            // 2. Níveis e eixos
+            var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).ToList();
+            Item("Níveis e eixos", "Ao menos 2 níveis (pavimento + cobertura)", levels.Count >= 2, $"{levels.Count} nível(is)", "create_level");
+            var planosPorNivel = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan)).Cast<ViewPlan>()
+                .Where(v => !v.IsTemplate && v.ViewType == ViewType.FloorPlan && v.GenLevel != null).Select(v => v.GenLevel.Id.Value).ToHashSet();
+            var semPlanta = levels.Where(l => !planosPorNivel.Contains(l.Id.Value)).Select(l => l.Name).ToList();
+            Item("Níveis e eixos", "Planta de piso para cada nível", semPlanta.Count == 0, semPlanta.Count == 0 ? "todos os níveis têm planta" : "sem planta: " + string.Join(", ", semPlanta), "create_floor_plan");
+            var grids = new FilteredElementCollector(doc).OfClass(typeof(Grid)).Cast<Grid>().ToList();
+            Item("Níveis e eixos", "Eixos de referência criados", grids.Count >= 2, $"{grids.Count} eixo(s)", "create_grid");
+            int soltos = grids.Count(g => !g.Pinned) + levels.Count(l => !l.Pinned);
+            Item("Níveis e eixos", "Níveis e eixos fixados", soltos == 0, $"{soltos} não fixado(s)", "pin_elements(categories=[\"Grids\", \"Levels\"])");
+
+            // 3. Modelo
+            var walls = Inst(BuiltInCategory.OST_Walls);
+            Item("Modelo", "Paredes modeladas", walls.Count > 0, $"{walls.Count} parede(s)", "create_walls / create_plan_layout", critico: true);
+            var genericas = walls.Select(w => ProTypeName(doc, w) ?? "").Where(n => Normalizar(n).Contains("generic") || Normalizar(n).Contains("generica")).Count();
+            Item("Modelo", "Paredes com tipos definidos (não genéricos)", genericas == 0, $"{genericas} parede(s) com tipo genérico", "create_layered_type + change_element_type");
+            Item("Modelo", "Pisos/lajes modelados", Inst(BuiltInCategory.OST_Floors).Count > 0, $"{Inst(BuiltInCategory.OST_Floors).Count} piso(s)", "create_floor");
+            Item("Modelo", "Cobertura modelada", Inst(BuiltInCategory.OST_Roofs).Count > 0, $"{Inst(BuiltInCategory.OST_Roofs).Count} cobertura(s)", "create_roof");
+            var portas = Inst(BuiltInCategory.OST_Doors);
+            var janelas = Inst(BuiltInCategory.OST_Windows);
+            Item("Modelo", "Portas e janelas inseridas", portas.Count > 0 && janelas.Count > 0, $"{portas.Count} porta(s), {janelas.Count} janela(s)", "create_door / create_window");
+            int warnings = 0;
+            try { warnings = doc.GetWarnings().Count; } catch { }
+            Item("Modelo", "Sem avisos do Revit", warnings == 0, $"{warnings} aviso(s)", "list_model_warnings");
+
+            // 4. Ambientes
+            var rooms = Inst(BuiltInCategory.OST_Rooms).OfType<Room>().ToList();
+            Item("Ambientes", "Ambientes criados", rooms.Count > 0, $"{rooms.Count} ambiente(s)", "place_rooms_at", critico: true);
+            int problemas = rooms.Count(r => r.Location == null || r.Area <= 0);
+            Item("Ambientes", "Todos os ambientes posicionados e delimitados", problemas == 0, $"{problemas} com problema", "get_room_report");
+            var dupRooms = rooms.Where(r => r.Area > 0).GroupBy(r => r.Number).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+            Item("Ambientes", "Números de ambiente únicos", dupRooms.Count == 0, dupRooms.Count == 0 ? "sem duplicados" : "duplicados: " + string.Join(", ", dupRooms.Take(10)), "renumber_elements(category=\"Rooms\")");
+            int semNome = rooms.Count(r => string.IsNullOrWhiteSpace(r.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString()) || Normalizar(r.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString() ?? "") == "room" || Normalizar(r.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString() ?? "") == "ambiente");
+            Item("Ambientes", "Ambientes nomeados", semNome == 0, $"{semNome} sem nome definido", "set_parameters_bulk");
+            int semAcabamento = rooms.Count(r => r.Area > 0 && string.IsNullOrWhiteSpace(r.get_Parameter(BuiltInParameter.ROOM_FINISH_FLOOR)?.AsString()));
+            Item("Ambientes", "Acabamento de piso informado", semAcabamento == 0, $"{semAcabamento} ambiente(s) sem acabamento de piso", "set_parameters_bulk(params={\"Acabamento do piso\": ...})");
+            var areas = Inst(BuiltInCategory.OST_Areas);
+            Item("Ambientes", "Quadro de áreas (planta de área)", areas.Count > 0, $"{areas.Count} área(s)", "create_area_plan → create_area_boundaries → place_areas");
+
+            // 5. Identificação
+            string Mark(Element e) => e.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)?.AsString();
+            int portasSemMarca = portas.Count(p => string.IsNullOrWhiteSpace(Mark(p)));
+            var portasDup = portas.Where(p => !string.IsNullOrWhiteSpace(Mark(p))).GroupBy(Mark).Count(g => g.Count() > 1);
+            Item("Identificação", "Portas numeradas sem duplicidade", portasSemMarca == 0 && portasDup == 0, $"{portasSemMarca} sem marca, {portasDup} marca(s) duplicada(s)", "renumber_elements(category=\"Doors\", prefix=\"P\")");
+            int janelasSemMarca = janelas.Count(p => string.IsNullOrWhiteSpace(Mark(p)));
+            Item("Identificação", "Janelas numeradas", janelasSemMarca == 0, $"{janelasSemMarca} sem marca", "renumber_elements(category=\"Windows\", prefix=\"J\")");
+
+            // 6. Documentação
+            var views = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().Where(v => !v.IsTemplate).ToList();
+            Item("Documentação", "Cortes criados", views.Any(v => v.ViewType == ViewType.Section), $"{views.Count(v => v.ViewType == ViewType.Section)} corte(s)", "create_section_view");
+            Item("Documentação", "Elevações/fachadas criadas", views.Any(v => v.ViewType == ViewType.Elevation), $"{views.Count(v => v.ViewType == ViewType.Elevation)} elevação(ões)", "create_elevations");
+            var sheets = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>().Where(s => !s.IsPlaceholder).ToList();
+            Item("Documentação", "Pranchas criadas", sheets.Count > 0, $"{sheets.Count} prancha(s)", "create_sheets", critico: true);
+            int vazias = sheets.Count(s => s.GetAllPlacedViews().Count == 0);
+            Item("Documentação", "Pranchas com vistas", sheets.Count > 0 && vazias == 0, $"{vazias} prancha(s) vazia(s)", "place_view_on_sheet");
+            var naPrancha = new HashSet<long>(sheets.SelectMany(s => s.GetAllPlacedViews()).Select(v => v.Value));
+            int plantasFora = views.Count(v => v.ViewType == ViewType.FloorPlan && v.CanBePrinted && !naPrancha.Contains(v.Id.Value));
+            Item("Documentação", "Plantas posicionadas em pranchas", plantasFora == 0, $"{plantasFora} planta(s) fora de prancha", "place_view_on_sheet");
+            var schedCats = new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
+                .Where(s => !s.IsTemplate && !s.IsTitleblockRevisionSchedule).Select(s => s.Definition.CategoryId.Value).ToHashSet();
+            var faltandoTabelas = new List<string>();
+            if (!schedCats.Contains((long)BuiltInCategory.OST_Doors)) faltandoTabelas.Add("portas");
+            if (!schedCats.Contains((long)BuiltInCategory.OST_Windows)) faltandoTabelas.Add("janelas");
+            if (!schedCats.Contains((long)BuiltInCategory.OST_Rooms)) faltandoTabelas.Add("ambientes");
+            Item("Documentação", "Tabelas de portas, janelas e ambientes", faltandoTabelas.Count == 0, faltandoTabelas.Count == 0 ? "existem" : "faltando: " + string.Join(", ", faltandoTabelas), "create_schedule_advanced");
+            Item("Documentação", "Revisão de emissão registrada", Revision.GetAllRevisionIds(doc).Count > 0, $"{Revision.GetAllRevisionIds(doc).Count} revisão(ões)", "create_revision + add_revision_to_sheets");
+
+            int nota = total == 0 ? 0 : (int)Math.Round(100.0 * ok / total);
+            return new
+            {
+                nota,
+                classificacao = nota >= 90 ? "pronto para emissão" : nota >= 70 ? "bem encaminhado" : nota >= 40 ? "em desenvolvimento" : "estágio inicial",
+                aprovados = ok,
+                total,
+                falhas_criticas = criticas,
+                itens,
+                observacao = "Checklist técnico de modelagem e documentação; não substitui a verificação de normas e legislação local por profissional habilitado."
+            };
         }
     }
 }

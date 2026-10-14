@@ -328,6 +328,7 @@ namespace RevitMcp
                 || cmd.StartsWith("analyze_", StringComparison.OrdinalIgnoreCase)
                 || cmd.StartsWith("preview_", StringComparison.OrdinalIgnoreCase)
                 || cmd.StartsWith("find_", StringComparison.OrdinalIgnoreCase)
+                || cmd.StartsWith("audit_", StringComparison.OrdinalIgnoreCase)
                 || cmd == "ping" || cmd == "bridge_health" || cmd == "save_document"
                 || cmd == "backup_document" || cmd == "plan_batch" || cmd == "screenshot"
                 || cmd == "set_selection" || cmd == "focus_element" || cmd == "zoom_fit"
