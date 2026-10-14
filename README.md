@@ -47,7 +47,33 @@ Exemplos de pedidos à IA:
 - "Crie o parâmetro 'Acabamento de piso' em Ambientes e uma tabela com Número, Nome, Área e esse parâmetro."
 - "Faça um quantitativo de paredes, pisos e esquadrias por tipo para o orçamento."
 
-## Requisitos
+## Formato das respostas
+
+Leituras devolvem os dados diretamente. Comandos que alteram o modelo devolvem um envelope padronizado:
+
+```json
+{
+  "comando": "create_wall",
+  "resultado": { "...": "retorno específico do comando" },
+  "alteracoes": {
+    "documento": "Casa.rvt",
+    "duracao_ms": 184,
+    "transacoes": ["MCP: Criar parede"],
+    "criados_total": 1,
+    "criados": [{ "id": 312345, "categoria": "Paredes", "tipo": "Genérico - 15 cm", "nivel": "Térreo",
+                  "posicao": { "inicio": {"x_m": 0, "y_m": 0, "z_m": 0}, "fim": {"x_m": 5, "y_m": 0, "z_m": 0} },
+                  "comprimento_m": 5.0, "area_m2": 14.0, "volume_m3": 2.1, "altura_m": 2.8 }],
+    "modificados_total": 2,
+    "modificados_por_categoria": { "Paredes": 2 },
+    "excluidos_total": 0
+  },
+  "avisos": [{ "severidade": "Warning", "descricao": "...", "ids": [312345] }],
+  "avisos_total": 1
+}
+```
+
+`alteracoes` vem do evento `DocumentChanged` do Revit, portanto reflete o efeito real no modelo (inclusive elementos unidos ou recalculados), e `avisos` lista somente os avisos novos gerados pelo comando.
+
 
 - Windows 10/11
 - Autodesk Revit 2025

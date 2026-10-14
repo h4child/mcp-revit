@@ -82,7 +82,16 @@ namespace RevitMcp
                 try { if (doc != null) avisosAntes = new HashSet<string>(doc.GetWarnings().Select(w => ChaveAviso(w))); }
                 catch (Exception ex) { HttpBridge.LogException("Snapshot de avisos", ex); }
 
-                object resultado = ExecutarComando(uiApp, req);
+                // Coleta o que o comando criou/modificou/excluiu (DocumentChanged).
+                object alteracoes = null;
+                object resultado;
+                ChangeTracker.Begin(doc);
+                try { resultado = ExecutarComando(uiApp, req); }
+                finally
+                {
+                    try { alteracoes = ChangeTracker.End(); }
+                    catch (Exception ex) { HttpBridge.LogException("Resumo de alterações", ex); }
+                }
 
                 // Comandos como open_document/new_project podem trocar ou fechar
                 // o documento capturado; nesses casos não há o que auditar nele.
@@ -97,9 +106,9 @@ namespace RevitMcp
                 }
 
                 // Compara com estado pós-comando; se surgiram avisos novos, anexa ao retorno.
+                List<object> novos = null;
                 if (docValido)
                 {
-                    List<object> novos = null;
                     try
                     {
                         novos = doc.GetWarnings()
@@ -113,10 +122,19 @@ namespace RevitMcp
                             .ToList();
                     }
                     catch (Exception ex) { HttpBridge.LogException("Avisos pós-comando", ex); }
-                    if (novos != null && novos.Count > 0)
-                        return new { resultado, avisos = novos };
                 }
-                return resultado;
+                bool temAvisos = novos != null && novos.Count > 0;
+                if (alteracoes == null && !temAvisos) return resultado;
+                // Escrita: resposta padronizada com o resultado do comando, o
+                // efeito real no modelo e os avisos novos que ele gerou.
+                return new
+                {
+                    comando = req.cmd,
+                    resultado,
+                    alteracoes,
+                    avisos = temAvisos ? novos : null,
+                    avisos_total = temAvisos ? novos.Count : 0
+                };
             });
         }
 

@@ -52,6 +52,9 @@ namespace RevitMcp
                 // Captura a UIApplication (só disponível via evento Idling)
                 a.Idling += OnIdling;
 
+                // Relatório de alterações anexado às respostas de escrita.
+                a.ControlledApplication.DocumentChanged += ChangeTracker.OnDocumentChanged;
+
                 // Inicia o servidor HTTP que recebe comandos do MCP Python
                 Bridge = new HttpBridge(HttpBridge.DefaultPort);
                 Bridge.Start();
@@ -95,6 +98,7 @@ namespace RevitMcp
         public Result OnShutdown(UIControlledApplication a)
         {
             try { a.Idling -= OnIdling; } catch { }
+            try { a.ControlledApplication.DocumentChanged -= ChangeTracker.OnDocumentChanged; } catch { }
             try { Bridge?.Stop(); StartupLog("OnShutdown concluído."); } catch { }
             return Result.Succeeded;
         }
