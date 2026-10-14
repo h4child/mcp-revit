@@ -2630,23 +2630,14 @@ namespace RevitMcp
                 .FirstOrDefault()
                 ?? allRoofTypes.First();
 
-            // Se o usuário passou 'level' explicitamente, usa-o direto como nível do telhado.
-            // Se não, calcula base+altura e procura (ou cria) um nível apropriado.
-            Level roofLevel;
-            double targetElev;
-            if (!string.IsNullOrEmpty(levelName))
-            {
-                roofLevel = level;
-                targetElev = FtToM(level.Elevation);
-            }
-            else
-            {
-                targetElev = FtToM(level.Elevation) + baseHeight;
-                roofLevel = new FilteredElementCollector(doc)
-                    .OfClass(typeof(Level)).Cast<Level>()
-                    .Where(l => Math.Abs(FtToM(l.Elevation) - targetElev) < 0.3)
-                    .FirstOrDefault();
-            }
+            // O telhado é hospedado no nível resolvido acima (explícito ou padrão) e
+            // base_height_m é sempre um deslocamento ACIMA desse nível (documentado
+            // como "altura da base do telhado, topo das paredes"). Antes, quando
+            // 'level' vinha explícito, base_height_m era descartado silenciosamente
+            // — o telhado nascia na elevação do nível, sem o deslocamento, pousando
+            // bem abaixo do topo das paredes (reproduzido nesta sessão: paredes do
+            // Pavimento Superior terminam em 7 m, mas o telhado nascia em 4 m).
+            Level roofLevel = level;
 
             // Contorno do telhado com beiral (overhang)
             double ox0 = MToFt(x0 - overhang);
@@ -2669,13 +2660,6 @@ namespace RevitMcp
             {
                 tx.Start();
 
-                // Cria nível do telhado se não existir
-                if (roofLevel == null)
-                {
-                    roofLevel = Level.Create(doc, MToFt(targetElev));
-                    try { roofLevel.Name = "Telhado"; } catch { }
-                }
-
                 var modelCurves = new ModelCurveArray();
                 var roof = doc.Create.NewFootPrintRoof(
                     footprint, roofLevel, roofType, out modelCurves);
@@ -2690,10 +2674,13 @@ namespace RevitMcp
                     roof.set_SlopeAngle(mc, slopeRatio);
                 }
 
-                // Ajusta offset da base do telhado
-                var baseOffsetParam = roof.get_Parameter(BuiltInParameter.ROOF_BASE_LEVEL_PARAM);
+                // Deslocamento da base acima do nível (ROOF_BASE_LEVEL_PARAM guarda o
+                // ElementId do nível em si — já definido pelo NewFootPrintRoof acima —
+                // não um deslocamento numérico; o parâmetro certo para a altura é
+                // ROOF_LEVEL_OFFSET_PARAM).
+                var baseOffsetParam = roof.get_Parameter(BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM);
                 if (baseOffsetParam != null)
-                    baseOffsetParam.Set(roofLevel.Id);
+                    baseOffsetParam.Set(MToFt(baseHeight));
 
                 result = new
                 {
