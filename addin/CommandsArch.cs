@@ -1019,33 +1019,17 @@ namespace RevitMcp
 
         private static object AttachWalls(UIApplication uiApp, JsonElement args)
         {
-            var doc = RequireDoc(uiApp);
-            var wallIds = ProIds(args, "wall_ids", required: true);
-            var targetId = GetElementIdReq(args, "target_id");
-            var target = doc.GetElement(targetId) ?? throw new ArgumentException($"Elemento {targetId.Value} não existe.");
-            var location = string.Equals(GetS(args, "location", "top"), "base", StringComparison.OrdinalIgnoreCase)
-                ? AttachmentLocation.Base : AttachmentLocation.Top;
-            bool detach = ProBool(args, "detach", false);
-            var resultado = new List<object>();
-            using (var tx = ProTx(doc, detach ? "Desanexar paredes" : "Anexar paredes"))
-            {
-                foreach (var id in wallIds)
-                {
-                    var wall = doc.GetElement(id) as Wall;
-                    string erro = null;
-                    try
-                    {
-                        if (wall == null) erro = "não é parede";
-                        else if (detach) wall.RemoveAttachment(targetId);
-                        else if (!Wall.IsValidTargetAttachment(doc, targetId)) erro = $"{target.Category?.Name} não é alvo válido para esta parede";
-                        else wall.AddAttachment(targetId, location);
-                    }
-                    catch (Exception ex) { erro = ex.Message; }
-                    resultado.Add(new { id = id.Value, ok = erro == null, motivo = erro });
-                }
-                tx.Commit();
-            }
-            return new { alvo = new { id = target.Id.Value, categoria = target.Category?.Name }, posicao = location.ToString(), desanexar = detach, paredes = resultado };
+            // A API pública do Revit 2025 (RevitAPI.dll) não expõe
+            // Wall.AddAttachment/RemoveAttachment/IsValidTargetAttachment nem
+            // um enum AttachmentLocation para paredes — confirmado por reflection
+            // sobre a classe Wall (ela só tem Flip, CreateProfileSketch, métodos
+            // de wrapping, etc.). O recurso "Anexar Superior/Base" existe apenas
+            // como comando de UI (PostableCommand), sem equivalente programático
+            // documentado nesta versão. Falhar aqui explicitamente em vez de
+            // referenciar membros inexistentes (isso não compilava).
+            throw new NotSupportedException(
+                "attach_walls: anexar parede a telhado/piso não tem API pública no Revit 2025. " +
+                "Use join_geometry para unir a geometria, ou ajuste manualmente no Revit (Modificar | Paredes > Anexar Superior/Base).");
         }
 
         private static object SetTrueNorth(UIApplication uiApp, JsonElement args)
