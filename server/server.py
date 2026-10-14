@@ -2440,6 +2440,33 @@ async def set_true_north(angle_deg: float) -> dict:
     """Define o ângulo do norte verdadeiro em relação ao norte do projeto (graus, anti-horário positivo)."""
     return await _rpc("set_true_north", angle_deg=angle_deg)
 
+# --- Produção ---------------------------------------------------------------------
+
+@mcp.tool()
+async def renumber_elements(category: str, prefix: str = "", start: int = 1, digits: int = 2,
+                            order: str = "position", restart_per_level: bool = False,
+                            level: Optional[str] = None, parameter: Optional[str] = None,
+                            dry_run: bool = False) -> dict:
+    """Numera elementos em sequência e mostra valor anterior e novo de cada um.
+
+    Ambientes usam Número; demais categorias usam Marca (ou parameter).
+    order="position": por nível e posição na planta (cima→baixo, esquerda→direita);
+    order="room": portas/janelas recebem o número do ambiente (101, 101a, 101b...).
+    Ex.: portas P01..Pnn → category="Doors", prefix="P"; ambientes do 1º pavimento
+    101.. → category="Rooms", prefix="1", level="Pavimento 1". dry_run=True só simula.
+    """
+    return await _rpc("renumber_elements", **_clean(
+        category=category, prefix=prefix, start=start, digits=digits, order=order,
+        restart_per_level=restart_per_level, level=level, parameter=parameter, dry_run=dry_run))
+
+
+@mcp.tool()
+async def export_images(view_ids: Optional[list[int]] = None, folder: Optional[str] = None,
+                        pixels: int = 2400, format: str = "png", prefix: Optional[str] = None) -> dict:
+    """Exporta vistas/pranchas como imagens (PNG ou JPG) em lote para apresentações,
+    retornando os arquivos gerados. Padrão: vista ativa."""
+    return await _rpc("export_images", **_clean(view_ids=view_ids, folder=folder, pixels=pixels, format=format, prefix=prefix))
+
 # =============================================================================
 # Anotações MCP — leitura x escrita x destrutivo
 # =============================================================================
@@ -2458,7 +2485,7 @@ FILE_OUTPUT_TOOLS = {"screenshot", "backup_document"}
 # Sobrescrevem/removem dados existentes ou trocam o documento ativo.
 DESTRUCTIVE_PREFIXES = ("delete_", "purge_", "set_", "modify_", "move_", "rotate_", "mirror_",
                         "align_", "resize_", "change_", "reset_", "override_", "reload_", "flip_",
-                        "join_", "attach_")
+                        "join_", "attach_", "renumber_")
 DESTRUCTIVE_TOOLS = {"save_document", "save_as", "open_document", "new_project", "execute_batch",
                      "apply_view_filter", "pin_elements", "create_material"}
 # Navegação na interface: não altera o modelo.

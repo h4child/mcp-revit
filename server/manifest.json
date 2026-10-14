@@ -806,6 +806,14 @@
     {
       "name": "set_true_north",
       "description": "Define o ângulo do norte verdadeiro em relação ao norte do projeto (graus, anti-horário positivo)."
+    },
+    {
+      "name": "renumber_elements",
+      "description": "Numera elementos em sequência e mostra valor anterior e novo de cada um."
+    },
+    {
+      "name": "export_images",
+      "description": "Exporta vistas/pranchas como imagens (PNG ou JPG) em lote para apresentações, retornando os arquivos gerados."
     }
   ],
   "keywords": [

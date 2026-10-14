@@ -14,6 +14,7 @@
 //     interface, relações de um elemento, templates de vista e opções de projeto.
 //   • Modelagem: inverter portas/janelas, abertura em laje, unir geometria,
 //     anexar topo/base de paredes e norte verdadeiro.
+//   • Produção: numeração automática e exportação de imagens em lote.
 //
 // Regra de estabilidade (ver d618f8e): nunca encadear LINQ diretamente sobre
 // coleções antigas da API (ParameterSet, PhaseArray, *Array, *Set); usar
@@ -67,6 +68,10 @@ namespace RevitMcp
                 case "join_geometry":        return JoinGeometry(uiApp, a);
                 case "attach_walls":         return AttachWalls(uiApp, a);
                 case "set_true_north":       return SetTrueNorth(uiApp, a);
+
+                // --- Produção ---
+                case "renumber_elements":    return RenumberElements(uiApp, a);
+                case "export_images":        return ExportImages(uiApp, a);
 
                 default:
                     throw new ArgumentException($"Comando desconhecido: {req.cmd}");
@@ -1060,6 +1065,122 @@ namespace RevitMcp
                 angulo_novo_graus = angle,
                 observacao = "Ângulo entre o norte do projeto e o norte verdadeiro (positivo = anti-horário). Afeta estudos de insolação e vistas orientadas ao norte verdadeiro."
             };
+        }
+
+        // =====================================================================
+        // PRODUÇÃO
+        // =====================================================================
+
+        /// <summary>
+        /// Numera elementos em sequência (Marca de portas/janelas, Número de
+        /// ambientes...). Ordem: nível e depois posição (y desc, x asc = leitura
+        /// de planta de cima para baixo, esquerda para direita) ou pelo ambiente.
+        /// </summary>
+        private static object RenumberElements(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var bic = ProCategory(GetS(args, "category"));
+            string prefix = GetS(args, "prefix", "");
+            int start = (int)GetD(args, "start", 1);
+            int digits = Math.Clamp((int)GetD(args, "digits", 2), 1, 6);
+            string order = (GetS(args, "order", "position") ?? "position").ToLowerInvariant();
+            bool perLevel = ProBool(args, "restart_per_level", false);
+            string levelFilter = GetS(args, "level");
+            bool dryRun = ProBool(args, "dry_run", false);
+
+            var elements = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType().ToElements()
+                .Where(e => levelFilter == null || Normalizar(ProLevelName(doc, e) ?? "") == Normalizar(levelFilter))
+                .Where(e => !(e is SpatialElement se) || se.Area > 0)
+                .ToList();
+            if (elements.Count == 0) throw new ArgumentException("Nenhum elemento a numerar com esses filtros.");
+            double LevelElev(Element e) => (doc.GetElement(e.LevelId) as Level)?.Elevation ?? 0;
+            string RoomNumber(Element e)
+            {
+                try { var fi = e as FamilyInstance; var r = fi?.ToRoom ?? fi?.FromRoom ?? fi?.Room; return r?.Number; } catch { return null; }
+            }
+            Parameter Target(Element e)
+            {
+                if (e is SpatialElement) return e.get_Parameter(BuiltInParameter.ROOM_NUMBER);
+                var name = GetS(args, "parameter");
+                return name != null ? ProLookup(doc, e, name, includeType: false) : e.get_Parameter(BuiltInParameter.ALL_MODEL_MARK);
+            }
+
+            var ordered = elements
+                .OrderBy(e => LevelElev(e))
+                .ThenBy(e => order == "room" ? (RoomNumber(e) ?? "~") : "")
+                .ThenByDescending(e => Math.Round(ProElementPoint(e)?.Y ?? 0, 1))
+                .ThenBy(e => ProElementPoint(e)?.X ?? 0)
+                .ToList();
+
+            var plano = new List<(Element e, string valor)>();
+            int counter = start;
+            long currentLevel = long.MinValue;
+            var porSala = new Dictionary<string, int>();
+            foreach (var e in ordered)
+            {
+                if (perLevel && e.LevelId.Value != currentLevel) { counter = start; currentLevel = e.LevelId.Value; }
+                string value;
+                if (order == "room")
+                {
+                    // Portas: número do ambiente + sufixo (101a, 101b...).
+                    var room = RoomNumber(e) ?? "SA";
+                    porSala[room] = porSala.TryGetValue(room, out var n) ? n + 1 : 0;
+                    value = prefix + room + (porSala[room] == 0 ? "" : ((char)('a' + porSala[room] - 1)).ToString());
+                }
+                else value = prefix + counter++.ToString().PadLeft(digits, '0');
+                plano.Add((e, value));
+            }
+
+            var resultado = plano.Select(x => new { id = x.e.Id.Value, nivel = ProLevelName(doc, x.e), anterior = ProParamText(doc, Target(x.e)), novo = x.valor }).ToList();
+            if (dryRun) return new { simulacao = true, elementos = resultado };
+
+            var falhas = new List<object>();
+            using (var tx = ProTx(doc, "Renumerar"))
+            {
+                // Valores temporários evitam conflito de números duplicados durante a troca (ambientes).
+                if (bic == BuiltInCategory.OST_Rooms || bic == BuiltInCategory.OST_MEPSpaces || bic == BuiltInCategory.OST_Areas)
+                    foreach (var (e, _) in plano) Target(e)?.Set("tmp_" + e.Id.Value);
+                foreach (var (e, value) in plano)
+                {
+                    var p = Target(e);
+                    string erro = p == null ? "parâmetro de numeração não encontrado" : p.IsReadOnly ? "somente leitura" : null;
+                    if (erro == null) { try { if (!p.Set(value)) erro = "valor rejeitado"; } catch (Exception ex) { erro = ex.Message; } }
+                    if (erro != null) falhas.Add(new { id = e.Id.Value, motivo = erro });
+                }
+                tx.Commit();
+            }
+            return new { numerados = plano.Count - falhas.Count, falhas, elementos = resultado };
+        }
+
+        private static object ExportImages(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var ids = ProIds(args, "view_ids");
+            if (ids.Count == 0) ids.Add(uiApp.ActiveUIDocument.ActiveView.Id);
+            var views = ids.Select(id => doc.GetElement(id) as View).Where(v => v != null && !v.IsTemplate && v.CanBePrinted).ToList();
+            if (views.Count == 0) throw new ArgumentException("Nenhuma vista imprimível entre os IDs informados.");
+            string folder = GetS(args, "folder") ?? System.IO.Path.GetTempPath();
+            System.IO.Directory.CreateDirectory(folder);
+            int pixels = Math.Clamp((int)GetD(args, "pixels", 2400), 256, 15000);
+            var format = (GetS(args, "format", "png") ?? "png").ToLowerInvariant() == "jpg" ? ImageFileType.JPEGLossless : ImageFileType.PNG;
+            string prefix = GetS(args, "prefix", doc.Title);
+            var before = new HashSet<string>(System.IO.Directory.GetFiles(folder));
+            var options = new ImageExportOptions
+            {
+                ExportRange = ExportRange.SetOfViews,
+                FilePath = System.IO.Path.Combine(folder, prefix),
+                FitDirection = FitDirectionType.Horizontal,
+                PixelSize = pixels,
+                HLRandWFViewsFileType = format,
+                ShadowViewsFileType = format,
+                ImageResolution = ImageResolution.DPI_300,
+                ZoomType = ZoomFitType.FitToPage
+            };
+            options.SetViewsAndSheets(views.Select(v => v.Id).ToList());
+            doc.ExportImage(options);
+            var arquivos = System.IO.Directory.GetFiles(folder).Where(f => !before.Contains(f))
+                .Select(f => new { arquivo = f, tamanho_kb = new System.IO.FileInfo(f).Length / 1024 }).ToList();
+            return new { pasta = folder, largura_px = pixels, vistas = views.Select(v => v.Name).ToList(), arquivos };
         }
     }
 }
