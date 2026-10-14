@@ -103,7 +103,8 @@ namespace RevitMcp
                 case "create_room_separators":  return CreateRoomSeparators(uiApp, a);
 
                 default:
-                    throw new ArgumentException($"Comando desconhecido: {req.cmd}");
+                    // Comandos de arquitetura (CommandsArch.cs)
+                    return ExecutarComandoArch(uiApp, req);
             }
         }
 

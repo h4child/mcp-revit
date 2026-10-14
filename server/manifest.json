@@ -714,6 +714,22 @@
     {
       "name": "create_room_separators",
       "description": "Cria linhas separadoras de ambiente (lines=[{x1_m,y1_m,x2_m,y2_m}]) para dividir ambientes sem paredes, como sala/cozinha integradas."
+    },
+    {
+      "name": "list_element_types",
+      "description": "Lista os tipos de uma categoria com dimensões, camadas e quantas instâncias usam cada um."
+    },
+    {
+      "name": "duplicate_type",
+      "description": "Duplica um tipo existente com novo nome e ajusta parâmetros de tipo."
+    },
+    {
+      "name": "change_element_type",
+      "description": "Troca o tipo de elementos existentes (paredes, portas, janelas, pisos...), informando o tipo anterior de cada um."
+    },
+    {
+      "name": "create_layered_type",
+      "description": "Cria tipo de parede, piso, forro ou cobertura por camadas (ordem: exterior/topo → interior/base)."
     }
   ],
   "keywords": [

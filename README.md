@@ -28,6 +28,7 @@ Servidor Python (FastMCP) ── token local ──► Add-in .NET no Revit
 | Área | Ferramentas |
 |---|---|
 | Dados do projeto | `get_project_info`, `set_project_info`, `get_project_location`, `list_phases`, `set_element_phase`, `create_workset`, `set_element_workset`, `list_project_parameters`, `create_project_parameter` |
+| Tipos | `list_element_types` (dimensões, camadas, uso), `duplicate_type`, `change_element_type`, `create_layered_type` (parede/piso/forro/cobertura por camadas) |
 | Consulta e edição em massa | `find_elements` (filtros por categoria, nível, tipo e parâmetros), `set_parameters_bulk` (instância ou tipo, numa transação) |
 | Vistas | `duplicate_view`, `set_view_properties`, `create_elevations`, `create_3d_view`, `create_drafting_view`, `create_view_filter`/`apply_view_filter`, `create_rule_filter` (filtro com regras de parâmetro), `set_category_override`, `set_element_override`, `reset_overrides`, `override_elements_in_view`, `set_category_visibility`, `tag_elements` |
 | Documentação | `list_sheets`, `list_titleblocks`, `create_sheets`, `list_revisions`, `create_revision`, `add_revision_to_sheets`, `list_schedules`, `create_schedule_advanced`, `get_schedule_data` |
@@ -167,7 +168,7 @@ dotnet build .\addin\RevitMcp.csproj -c Release
 
 Sem o Revit instalado na máquina de build, o projeto compila contra os assemblies de referência da API do Revit 2025 publicados no NuGet (`Nice3point.Revit.Api.*`), que não são copiados para a saída. O CI (`.github/workflows/ci.yml`) roda os testes Python e o build do add-in a cada push e pull request.
 
-`tests/test_consistency.py` garante que todo comando enviado pelo servidor existe no add-in, que os argumentos obrigatórios são enviados e que `server/manifest.json` lista todas as ferramentas.
+`python scripts/update_manifest.py` sincroniza o manifesto após adicionar ferramentas. `tests/test_consistency.py` garante que todo comando enviado pelo servidor existe no add-in, que os argumentos obrigatórios são enviados e que `server/manifest.json` lista todas as ferramentas.
 
 Principais diretórios:
 

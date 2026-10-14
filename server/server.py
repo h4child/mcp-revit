@@ -2243,6 +2243,59 @@ async def create_room_separators(lines: list[dict], level: Optional[str] = None)
 
 
 # =============================================================================
+# ARQUITETURA — tipos, áreas, aberturas, cotas e organização do modelo
+# =============================================================================
+
+# --- Tipos ------------------------------------------------------------------
+
+@mcp.tool()
+async def list_element_types(category: str, contains: Optional[str] = None) -> dict:
+    """Lista os tipos de uma categoria com dimensões, camadas e quantas instâncias usam cada um.
+
+    Ex.: category="Walls" mostra espessura total e camadas (função, material,
+    espessura) de cada tipo de parede; "Doors"/"Windows" mostram largura e altura.
+    """
+    return await _rpc("list_element_types", **_clean(category=category, contains=contains))
+
+
+@mcp.tool()
+async def duplicate_type(new_name: str, type_id: Optional[int] = None, type_name: Optional[str] = None,
+                         category: Optional[str] = None, params: Optional[dict] = None) -> dict:
+    """Duplica um tipo existente com novo nome e ajusta parâmetros de tipo.
+
+    Ex.: porta 90x210 a partir de 80x210 → type_name="80x210", category="Doors",
+    new_name="90x210", params={"Largura": 0.9}. Comprimentos em metros.
+    """
+    return await _rpc("duplicate_type", **_clean(
+        new_name=new_name, type_id=type_id, type_name=type_name, category=category, params=params))
+
+
+@mcp.tool()
+async def change_element_type(ids: list[int], type_id: Optional[int] = None,
+                              type_name: Optional[str] = None, category: Optional[str] = None) -> dict:
+    """Troca o tipo de elementos existentes (paredes, portas, janelas, pisos...), informando o tipo anterior de cada um."""
+    return await _rpc("change_element_type", **_clean(ids=ids, type_id=type_id, type_name=type_name, category=category))
+
+
+@mcp.tool()
+async def create_layered_type(name: str, layers: list[dict], kind: str = "wall",
+                              base_type: Optional[str] = None, function: Optional[str] = None,
+                              create_materials: bool = True) -> dict:
+    """Cria tipo de parede, piso, forro ou cobertura por camadas (ordem: exterior/topo → interior/base).
+
+    layers = [{"function": "finish1", "material": "Reboco externo", "thickness_m": 0.025},
+              {"function": "structure", "material": "Bloco cerâmico", "thickness_m": 0.14},
+              {"function": "finish2", "material": "Reboco interno", "thickness_m": 0.015}]
+    function da camada: structure, substrate, insulation, finish1, finish2, membrane.
+    kind: wall, floor, ceiling, roof. function (paredes): Exterior ou Interior.
+    Materiais inexistentes são criados com o nome informado.
+    """
+    return await _rpc("create_layered_type", **_clean(
+        name=name, layers=layers, kind=kind, base_type=base_type, function=function,
+        create_materials=create_materials))
+
+
+# =============================================================================
 # Anotações MCP — leitura x escrita x destrutivo
 # =============================================================================
 #
