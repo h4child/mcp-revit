@@ -1835,9 +1835,14 @@ namespace RevitMcp
                         : Array.Empty<string>();
             if (hints.Length > 0)
             {
+                // Exclui tipos "... - MCP <largura> x <altura>" já criados por esta
+                // mesma função (ResolveWindowSize): como um dos hints é o próprio
+                // "kind" (ex.: "quarto"), sem isto a 2ª janela do mesmo perfil
+                // reencontra o tipo dedicado da 1ª e duplica o sufixo MCP de novo.
                 var match = new FilteredElementCollector(doc)
                     .OfCategory(BuiltInCategory.OST_Windows).OfClass(typeof(FamilySymbol))
                     .Cast<FamilySymbol>()
+                    .Where(s => s.Name.IndexOf(" - MCP ", StringComparison.OrdinalIgnoreCase) < 0)
                     .FirstOrDefault(s => hints.Any(h => (s.Family.Name + " " + s.Name)
                         .IndexOf(h, StringComparison.OrdinalIgnoreCase) >= 0));
                 if (match != null) return match;
