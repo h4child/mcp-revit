@@ -396,11 +396,12 @@ namespace RevitMcp
             void Count(Dictionary<long, int> map, Room r) { if (r != null) map[r.Id.Value] = map.TryGetValue(r.Id.Value, out var n) ? n + 1 : 1; }
             foreach (var fi in new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Doors).WhereElementIsNotElementType().OfType<FamilyInstance>())
             {
-                try { Count(portas, fi.FromRoom); if (fi.ToRoom?.Id != fi.FromRoom?.Id) Count(portas, fi.ToRoom); } catch { }
+                var (de, para) = ArchDoorRooms(doc, fi);
+                Count(portas, de); if (para?.Id != de?.Id) Count(portas, para);
             }
             foreach (var fi in new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Windows).WhereElementIsNotElementType().OfType<FamilyInstance>())
             {
-                try { Count(janelas, fi.ToRoom ?? fi.FromRoom ?? fi.Room); } catch { }
+                Count(janelas, ArchRoomOf(doc, fi));
             }
 
             var ambientes = new List<(string nivel, string numero, object item)>();
@@ -816,12 +817,10 @@ namespace RevitMcp
             {
                 try
                 {
-                    ambientes = new
-                    {
-                        ambiente = fi.Room == null ? null : new { id = fi.Room.Id.Value, numero = fi.Room.Number, nome = ArchParamText(fi.Room, BuiltInParameter.ROOM_NAME) },
-                        de = fi.FromRoom == null ? null : new { id = fi.FromRoom.Id.Value, numero = fi.FromRoom.Number, nome = ArchParamText(fi.FromRoom, BuiltInParameter.ROOM_NAME) },
-                        para = fi.ToRoom == null ? null : new { id = fi.ToRoom.Id.Value, numero = fi.ToRoom.Number, nome = ArchParamText(fi.ToRoom, BuiltInParameter.ROOM_NAME) }
-                    };
+                    var (roomDe, roomPara) = ArchDoorRooms(doc, fi);
+                    var roomUnico = ArchRoomOf(doc, fi);
+                    object Rm(Room r) => r == null ? null : new { id = r.Id.Value, numero = r.Number, nome = ArchParamText(r, BuiltInParameter.ROOM_NAME) };
+                    ambientes = new { ambiente = Rm(roomUnico), de = Rm(roomDe), para = Rm(roomPara) };
                 }
                 catch { }
             }
@@ -1084,7 +1083,7 @@ namespace RevitMcp
             double LevelElev(Element e) => (doc.GetElement(e.LevelId) as Level)?.Elevation ?? 0;
             string RoomNumber(Element e)
             {
-                try { var fi = e as FamilyInstance; var r = fi?.ToRoom ?? fi?.FromRoom ?? fi?.Room; return r?.Number; } catch { return null; }
+                try { var r = ArchRoomOf(doc, e as FamilyInstance); return r?.Number; } catch { return null; }
             }
             Parameter Target(Element e)
             {

@@ -333,6 +333,45 @@ namespace RevitMcp
             return p;
         }
 
+        /// <summary>Fase em que o elemento foi criado (não a última fase do projeto:
+        /// o projeto pode ter fases posteriores, como "Fase 2"/"Fase 3", em que o
+        /// elemento nem existe ainda).</summary>
+        private static Phase ArchOwnPhase(Document doc, Element e)
+        {
+            if (e == null) return null;
+            try { return doc.GetElement(e.CreatedPhaseId) as Phase; }
+            catch { return null; }
+        }
+
+        /// <summary>Ambiente associado a uma porta/janela (Room, ou FromRoom/ToRoom como
+        /// fallback). FamilyInstance.Room/FromRoom/ToRoom sem fase sempre retornam null no
+        /// Revit 2025; as sobrecargas get_Room/get_FromRoom/get_ToRoom exigem a Phase em
+        /// que o elemento foi criado.</summary>
+        private static Room ArchRoomOf(Document doc, FamilyInstance fi)
+        {
+            if (fi == null) return null;
+            var fase = ArchOwnPhase(doc, fi);
+            try
+            {
+                return fase != null
+                    ? (fi.get_Room(fase) ?? fi.get_ToRoom(fase) ?? fi.get_FromRoom(fase))
+                    : (fi.Room ?? fi.ToRoom ?? fi.FromRoom);
+            }
+            catch { return null; }
+        }
+
+        /// <summary>Ambientes dos dois lados de uma porta (De/Para).</summary>
+        private static (Room de, Room para) ArchDoorRooms(Document doc, FamilyInstance fi)
+        {
+            if (fi == null) return (null, null);
+            var fase = ArchOwnPhase(doc, fi);
+            try
+            {
+                return fase != null ? (fi.get_FromRoom(fase), fi.get_ToRoom(fase)) : (fi.FromRoom, fi.ToRoom);
+            }
+            catch { return (null, null); }
+        }
+
         /// <summary>Como ProSetParam, mas trata "Name" como a propriedade Element.Name quando o
         /// elemento (nível, grelha, vista, tipo...) não expõe o nome como Parameter pesquisável.</summary>
         private static string ProSetNamedParam(Document doc, Element e, string name, JsonElement value, bool includeType = true)

@@ -669,7 +669,7 @@ namespace RevitMcp
         {
             try
             {
-                var room = fi.ToRoom ?? fi.FromRoom ?? fi.Room;
+                var room = ArchRoomOf(fi?.Document, fi);
                 return room == null ? null : (room.Number + " " + room.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString()).Trim();
             }
             catch { return null; }
