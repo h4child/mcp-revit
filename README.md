@@ -31,6 +31,7 @@ Servidor Python (FastMCP) ── token local ──► Add-in .NET no Revit
 | Tipos | `list_element_types` (dimensões, camadas, uso), `duplicate_type`, `change_element_type`, `create_layered_type` (parede/piso/forro/cobertura por camadas) |
 | Ambientes e áreas | `get_room_report` (áreas, acabamentos, portas, problemas), `list_area_schemes`, `create_area_plan`, `create_area_boundaries`, `place_areas`, `get_area_report` (quadro de áreas) |
 | Organização | `create_shaft_opening`, `dimension_grids`, `pin_elements`, `set_selection`, `get_element_relationships`, `list_view_templates`, `create_view_template`, `list_design_options` |
+| Modelagem | `flip_instances`, `create_floor_opening`, `join_geometry`, `attach_walls`, `set_true_north` |
 | Consulta e edição em massa | `find_elements` (filtros por categoria, nível, tipo e parâmetros), `set_parameters_bulk` (instância ou tipo, numa transação) |
 | Vistas | `duplicate_view`, `set_view_properties`, `create_elevations`, `create_3d_view`, `create_drafting_view`, `create_view_filter`/`apply_view_filter`, `create_rule_filter` (filtro com regras de parâmetro), `set_category_override`, `set_element_override`, `reset_overrides`, `override_elements_in_view`, `set_category_visibility`, `tag_elements` |
 | Documentação | `list_sheets`, `list_titleblocks`, `create_sheets`, `list_revisions`, `create_revision`, `add_revision_to_sheets`, `list_schedules`, `create_schedule_advanced`, `get_schedule_data` |

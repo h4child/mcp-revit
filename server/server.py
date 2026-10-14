@@ -2400,6 +2400,46 @@ async def list_design_options() -> dict:
     """Lista opções de projeto (conjunto, principal, ativa) para estudos de alternativas."""
     return await _rpc("list_design_options")
 
+# --- Modelagem --------------------------------------------------------------------
+
+@mcp.tool()
+async def flip_instances(ids: list[int], hand: bool = False, facing: bool = False) -> dict:
+    """Inverte portas/janelas: hand=True troca o lado da dobradiça/abertura;
+    facing=True troca o sentido (abre para dentro/fora)."""
+    return await _rpc("flip_instances", ids=ids, hand=hand, facing=facing)
+
+
+@mcp.tool()
+async def create_floor_opening(host_id: int, points: list[dict], perpendicular: bool = True) -> dict:
+    """Cria abertura num piso, forro ou cobertura pelo contorno points [{x_m,y_m}]
+    (escadas, vazios de pé-direito duplo, passagens de prumadas)."""
+    return await _rpc("create_floor_opening", host_id=host_id, points=points, perpendicular=perpendicular)
+
+
+@mcp.tool()
+async def join_geometry(mode: str = "join", pairs: Optional[list[list[int]]] = None,
+                        ids_a: Optional[list[int]] = None, categories_b: Optional[list[str]] = None) -> dict:
+    """Une, separa ou inverte a prioridade de geometria entre elementos (ex.: laje x paredes).
+
+    mode: join, unjoin ou switch. Use pairs=[[id_a, id_b], ...] ou, para unir
+    automaticamente tudo o que toca, ids_a=[laje] e categories_b=["Walls"].
+    """
+    return await _rpc("join_geometry", **_clean(mode=mode, pairs=pairs, ids_a=ids_a, categories_b=categories_b))
+
+
+@mcp.tool()
+async def attach_walls(wall_ids: list[int], target_id: int, location: str = "top",
+                       detach: bool = False) -> dict:
+    """Anexa o topo (ou a base, location="base") de paredes a uma cobertura, piso ou forro,
+    acompanhando inclinações. detach=True remove o vínculo."""
+    return await _rpc("attach_walls", wall_ids=wall_ids, target_id=target_id, location=location, detach=detach)
+
+
+@mcp.tool()
+async def set_true_north(angle_deg: float) -> dict:
+    """Define o ângulo do norte verdadeiro em relação ao norte do projeto (graus, anti-horário positivo)."""
+    return await _rpc("set_true_north", angle_deg=angle_deg)
+
 # =============================================================================
 # Anotações MCP — leitura x escrita x destrutivo
 # =============================================================================
@@ -2417,7 +2457,8 @@ FILE_OUTPUT_PREFIXES = ("export_",)
 FILE_OUTPUT_TOOLS = {"screenshot", "backup_document"}
 # Sobrescrevem/removem dados existentes ou trocam o documento ativo.
 DESTRUCTIVE_PREFIXES = ("delete_", "purge_", "set_", "modify_", "move_", "rotate_", "mirror_",
-                        "align_", "resize_", "change_", "reset_", "override_", "reload_")
+                        "align_", "resize_", "change_", "reset_", "override_", "reload_", "flip_",
+                        "join_", "attach_")
 DESTRUCTIVE_TOOLS = {"save_document", "save_as", "open_document", "new_project", "execute_batch",
                      "apply_view_filter", "pin_elements", "create_material"}
 # Navegação na interface: não altera o modelo.

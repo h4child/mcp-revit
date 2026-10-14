@@ -786,6 +786,26 @@
     {
       "name": "list_design_options",
       "description": "Lista opções de projeto (conjunto, principal, ativa) para estudos de alternativas."
+    },
+    {
+      "name": "flip_instances",
+      "description": "Inverte portas/janelas: hand=True troca o lado da dobradiça/abertura; facing=True troca o sentido (abre para dentro/fora)."
+    },
+    {
+      "name": "create_floor_opening",
+      "description": "Cria abertura num piso, forro ou cobertura pelo contorno points [{x_m,y_m}] (escadas, vazios de pé-direito duplo, passagens de prumadas)."
+    },
+    {
+      "name": "join_geometry",
+      "description": "Une, separa ou inverte a prioridade de geometria entre elementos (ex.: laje x paredes)."
+    },
+    {
+      "name": "attach_walls",
+      "description": "Anexa o topo (ou a base, location=\"base\") de paredes a uma cobertura, piso ou forro, acompanhando inclinações."
+    },
+    {
+      "name": "set_true_north",
+      "description": "Define o ângulo do norte verdadeiro em relação ao norte do projeto (graus, anti-horário positivo)."
     }
   ],
   "keywords": [

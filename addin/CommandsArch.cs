@@ -12,6 +12,8 @@
 //     planos de área, limites, áreas e quadro de áreas por esquema/nível.
 //   • Organização: shafts, cotas de eixos, fixar elementos, seleção na
 //     interface, relações de um elemento, templates de vista e opções de projeto.
+//   • Modelagem: inverter portas/janelas, abertura em laje, unir geometria,
+//     anexar topo/base de paredes e norte verdadeiro.
 //
 // Regra de estabilidade (ver d618f8e): nunca encadear LINQ diretamente sobre
 // coleções antigas da API (ParameterSet, PhaseArray, *Array, *Set); usar
@@ -58,6 +60,13 @@ namespace RevitMcp
                 case "list_view_templates":  return ListViewTemplates(uiApp);
                 case "create_view_template": return CreateViewTemplate(uiApp, a);
                 case "list_design_options":  return ListDesignOptions(uiApp);
+
+                // --- Modelagem ---
+                case "flip_instances":       return FlipInstances(uiApp, a);
+                case "create_floor_opening": return CreateFloorOpening(uiApp, a);
+                case "join_geometry":        return JoinGeometry(uiApp, a);
+                case "attach_walls":         return AttachWalls(uiApp, a);
+                case "set_true_north":       return SetTrueNorth(uiApp, a);
 
                 default:
                     throw new ArgumentException($"Comando desconhecido: {req.cmd}");
@@ -892,6 +901,165 @@ namespace RevitMcp
                     return new { id = o.Id.Value, nome = o.Name, conjunto = set, principal = o.IsPrimary, ativa = o.Id == active };
                 }).OrderBy(o => o.conjunto).ThenBy(o => o.nome).ToList();
             return new { quantidade = opcoes.Count, opcoes, observacao = opcoes.Count == 0 ? "O projeto não usa opções de projeto." : null };
+        }
+
+        // =====================================================================
+        // MODELAGEM
+        // =====================================================================
+
+        private static object FlipInstances(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var ids = ProIds(args, "ids", required: true);
+            bool hand = ProBool(args, "hand", false), facing = ProBool(args, "facing", false);
+            if (!hand && !facing) throw new ArgumentException("Informe hand=true (lado da dobradiça/abertura) e/ou facing=true (sentido interno/externo).");
+            var resultado = new List<object>();
+            using (var tx = ProTx(doc, "Inverter instâncias"))
+            {
+                foreach (var id in ids)
+                {
+                    var fi = doc.GetElement(id) as FamilyInstance;
+                    string erro = null;
+                    if (fi == null) erro = "não é instância de família";
+                    else
+                    {
+                        try
+                        {
+                            if (hand) { if (fi.CanFlipHand) fi.flipHand(); else erro = "não permite inverter o lado"; }
+                            if (facing && erro == null) { if (fi.CanFlipFacing) fi.flipFacing(); else erro = "não permite inverter o sentido"; }
+                        }
+                        catch (Exception ex) { erro = ex.Message; }
+                    }
+                    resultado.Add(new { id = id.Value, ok = erro == null, invertida_lado = fi?.HandFlipped, invertida_sentido = fi?.FacingFlipped, motivo = erro });
+                }
+                tx.Commit();
+            }
+            return new { elementos = resultado };
+        }
+
+        private static object CreateFloorOpening(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var hostId = GetElementIdReq(args, "host_id");
+            var host = doc.GetElement(hostId) ?? throw new ArgumentException($"Elemento {hostId.Value} não existe.");
+            if (!(host is Floor || host is Ceiling || host is RoofBase))
+                throw new ArgumentException("host_id deve ser um piso, forro ou cobertura (para paredes use create_opening).");
+            var bb = host.get_BoundingBox(null);
+            var pts = ProPoints(args, "points", bb?.Max.Z ?? 0);
+            if (pts.Count < 3) throw new ArgumentException("O contorno da abertura precisa de ao menos 3 pontos.");
+            var profile = new CurveArray();
+            for (int i = 0; i < pts.Count; i++) profile.Append(Line.CreateBound(pts[i], pts[(i + 1) % pts.Count]));
+            using (var tx = ProTx(doc, "Abertura em laje"))
+            {
+                var opening = doc.Create.NewOpening(host, profile, ProBool(args, "perpendicular", true));
+                tx.Commit();
+                double area = 0;
+                for (int i = 0; i < pts.Count; i++) area += pts[i].X * pts[(i + 1) % pts.Count].Y - pts[(i + 1) % pts.Count].X * pts[i].Y;
+                return new { id = opening.Id.Value, hospedeiro = new { id = host.Id.Value, categoria = host.Category?.Name, tipo = ProTypeName(doc, host) }, area_m2 = Math.Round(Math.Abs(area) / 2 * 0.3048 * 0.3048, 3) };
+            }
+        }
+
+        private static object JoinGeometry(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            string mode = (GetS(args, "mode", "join") ?? "join").ToLowerInvariant();
+            var pairs = new List<(ElementId, ElementId)>();
+            if (ProHas(args, "pairs", out var parr) && parr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var p in parr.EnumerateArray())
+                {
+                    var ab = p.EnumerateArray().Select(v => new ElementId(v.GetInt64())).ToList();
+                    if (ab.Count != 2) throw new ArgumentException("Cada par precisa de 2 IDs.");
+                    pairs.Add((ab[0], ab[1]));
+                }
+            }
+            else
+            {
+                // Modo automático: une cada elemento de ids_a aos de ids_b que o tocam.
+                var idsA = ProIds(args, "ids_a", required: true);
+                var catB = ProCategories(args, "categories_b");
+                if (catB.Count == 0) throw new ArgumentException("Informe pairs, ou ids_a + categories_b (ex.: [\"Walls\"]).");
+                foreach (var idA in idsA)
+                {
+                    var a = doc.GetElement(idA); var bb = a?.get_BoundingBox(null);
+                    if (bb == null) continue;
+                    foreach (var b in new FilteredElementCollector(doc).WherePasses(new ElementMulticategoryFilter(catB)).WhereElementIsNotElementType()
+                                 .WherePasses(new BoundingBoxIntersectsFilter(new Outline(bb.Min, bb.Max))).ToElements())
+                        if (b.Id != idA) pairs.Add((idA, b.Id));
+                }
+            }
+            var resultado = new List<object>();
+            int ok = 0;
+            using (var tx = ProTx(doc, "Unir geometria"))
+            {
+                foreach (var (ia, ib) in pairs)
+                {
+                    var a = doc.GetElement(ia); var b = doc.GetElement(ib);
+                    string erro = null;
+                    try
+                    {
+                        if (a == null || b == null) erro = "elemento inexistente";
+                        else if (mode == "unjoin") { if (JoinGeometryUtils.AreElementsJoined(doc, a, b)) JoinGeometryUtils.UnjoinGeometry(doc, a, b); }
+                        else if (mode == "switch") JoinGeometryUtils.SwitchJoinOrder(doc, a, b);
+                        else if (!JoinGeometryUtils.AreElementsJoined(doc, a, b)) JoinGeometryUtils.JoinGeometry(doc, a, b);
+                    }
+                    catch (Exception ex) { erro = ex.Message; }
+                    if (erro == null) ok++;
+                    if (resultado.Count < 200) resultado.Add(new { a = ia.Value, b = ib.Value, ok = erro == null, motivo = erro });
+                }
+                tx.Commit();
+            }
+            return new { modo = mode, pares = pairs.Count, sucesso = ok, falhas = pairs.Count - ok, detalhes = resultado };
+        }
+
+        private static object AttachWalls(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var wallIds = ProIds(args, "wall_ids", required: true);
+            var targetId = GetElementIdReq(args, "target_id");
+            var target = doc.GetElement(targetId) ?? throw new ArgumentException($"Elemento {targetId.Value} não existe.");
+            var location = string.Equals(GetS(args, "location", "top"), "base", StringComparison.OrdinalIgnoreCase)
+                ? AttachmentLocation.Base : AttachmentLocation.Top;
+            bool detach = ProBool(args, "detach", false);
+            var resultado = new List<object>();
+            using (var tx = ProTx(doc, detach ? "Desanexar paredes" : "Anexar paredes"))
+            {
+                foreach (var id in wallIds)
+                {
+                    var wall = doc.GetElement(id) as Wall;
+                    string erro = null;
+                    try
+                    {
+                        if (wall == null) erro = "não é parede";
+                        else if (detach) wall.RemoveAttachment(targetId);
+                        else if (!Wall.IsValidTargetAttachment(doc, targetId)) erro = $"{target.Category?.Name} não é alvo válido para esta parede";
+                        else wall.AddAttachment(targetId, location);
+                    }
+                    catch (Exception ex) { erro = ex.Message; }
+                    resultado.Add(new { id = id.Value, ok = erro == null, motivo = erro });
+                }
+                tx.Commit();
+            }
+            return new { alvo = new { id = target.Id.Value, categoria = target.Category?.Name }, posicao = location.ToString(), desanexar = detach, paredes = resultado };
+        }
+
+        private static object SetTrueNorth(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            double angle = GetDReq(args, "angle_deg");
+            var location = doc.ActiveProjectLocation;
+            var current = location.GetProjectPosition(XYZ.Zero);
+            using (var tx = ProTx(doc, "Norte verdadeiro"))
+            {
+                location.SetProjectPosition(XYZ.Zero, new ProjectPosition(current.EastWest, current.NorthSouth, current.Elevation, angle * Math.PI / 180.0));
+                tx.Commit();
+            }
+            return new
+            {
+                angulo_anterior_graus = Math.Round(current.Angle * 180.0 / Math.PI, 4),
+                angulo_novo_graus = angle,
+                observacao = "Ângulo entre o norte do projeto e o norte verdadeiro (positivo = anti-horário). Afeta estudos de insolação e vistas orientadas ao norte verdadeiro."
+            };
         }
     }
 }
