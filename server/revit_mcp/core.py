@@ -138,6 +138,18 @@ mcp = FastMCP("revit-mcp")
 # Comunicação com o Revit via HTTP
 # =============================================================================
 
+# Mesmos critérios do add-in (Commands.CommandTimeoutMs): comandos que percorrem
+# o modelo inteiro ou geram arquivos recebem até 10 minutos.
+LONG_COMMAND_PREFIXES = ("export_", "analyze_", "audit_", "purge_", "execute_batch", "open_document",
+                         "save", "new_project", "load_revit_link", "create_furniture_family", "renumber_")
+
+
+def _timeout_for(cmd: str) -> float:
+    if cmd.startswith(LONG_COMMAND_PREFIXES):
+        return max(TIMEOUT, 610.0)
+    return max(TIMEOUT, 125.0)
+
+
 async def _rpc(cmd: str, **args) -> object:
     """
     Envia um comando para o add-in do Revit e retorna o resultado.
@@ -146,12 +158,13 @@ async def _rpc(cmd: str, **args) -> object:
     _validate_bridge_url()
     payload = {"cmd": cmd, "args": args}
     log.debug("RPC → %s %s", cmd, args)
+    timeout = _timeout_for(cmd)
     try:
-        async with _client(TIMEOUT) as client:
+        async with _client(timeout) as client:
             r = await client.post(BRIDGE_URL, json=payload, headers=_headers())
     except httpx.TimeoutException:
         raise RuntimeError(
-            f"[{cmd}] O Revit não respondeu em {TIMEOUT:.0f}s. Ele pode estar ocupado ou com uma "
+            f"[{cmd}] O Revit não respondeu em {timeout:.0f}s. Ele pode estar ocupado ou com uma "
             "caixa de diálogo aberta; feche-a e consulte o modelo antes de repetir a operação "
             "(ela pode ter sido concluída). Para comandos longos, aumente REVIT_MCP_TIMEOUT."
         )

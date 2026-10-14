@@ -74,7 +74,7 @@ namespace RevitMcp
                 throw new InvalidOperationException("RevitMcp ainda não foi inicializado pelo Revit.");
 
             // Todos os outros comandos precisam da thread principal
-            return App.Handler.Run(uiApp =>
+            return App.Handler.Run(timeoutMs: CommandTimeoutMs(req.cmd), work: uiApp =>
             {
                 // Snapshot de avisos ANTES do comando: pra detectar novos avisos causados por ele.
                 var doc = uiApp?.ActiveUIDocument?.Document;
@@ -137,6 +137,13 @@ namespace RevitMcp
                 };
             });
         }
+
+        // Operações que percorrem o modelo inteiro ou geram arquivos podem levar
+        // minutos em projetos grandes. O servidor Python usa os mesmos critérios.
+        private static readonly string[] LongCommandPrefixes = { "export_", "analyze_", "audit_", "purge_", "execute_batch", "open_document", "save", "new_project", "load_revit_link", "create_furniture_family", "renumber_" };
+
+        private static int CommandTimeoutMs(string cmd)
+            => LongCommandPrefixes.Any(p => cmd.StartsWith(p, StringComparison.OrdinalIgnoreCase)) ? 600_000 : 120_000;
 
         /// <summary>Chave estável pra deduplicar avisos entre snapshots.</summary>
         private static string ChaveAviso(FailureMessage w)

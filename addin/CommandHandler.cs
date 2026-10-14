@@ -14,7 +14,8 @@
 //   5. Run() retorna o resultado para o servidor HTTP
 //
 // O lock garante que apenas um comando executa por vez.
-// O timeout de 60s protege contra travamentos (ex: diálogo modal aberto).
+// O timeout (2 min, ou 10 min para exportações/auditorias) protege contra
+// travamentos (ex: diálogo modal aberto).
 // ============================================================================
 
 using System;
