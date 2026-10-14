@@ -149,10 +149,17 @@ async def _rpc(cmd: str, **args) -> object:
     try:
         async with _client(TIMEOUT) as client:
             r = await client.post(BRIDGE_URL, json=payload, headers=_headers())
+    except httpx.TimeoutException:
+        raise RuntimeError(
+            f"[{cmd}] O Revit não respondeu em {TIMEOUT:.0f}s. Ele pode estar ocupado ou com uma "
+            "caixa de diálogo aberta; feche-a e consulte o modelo antes de repetir a operação "
+            "(ela pode ter sido concluída). Para comandos longos, aumente REVIT_MCP_TIMEOUT."
+        )
     except httpx.RequestError as e:
         raise RuntimeError(
-            f"Não foi possível conectar ao Revit em {BRIDGE_URL}. "
-            "Verifique se o Revit 2025 está aberto com o add-in RevitMcp carregado. "
+            f"[{cmd}] Não foi possível conectar ao Revit em {BRIDGE_URL}. "
+            "Verifique se o Revit 2025 está aberto com o add-in RevitMcp carregado "
+            "(diagnóstico: diagnose-revit-mcp.ps1). "
             f"Detalhe: {e}"
         )
 
@@ -168,9 +175,29 @@ async def _rpc(cmd: str, **args) -> object:
     if not data.get("ok"):
         request_id = data.get("request_id")
         suffix = f" (requisição {request_id})" if request_id else ""
-        raise RuntimeError((data.get("error") or f"Erro HTTP {r.status_code}") + suffix)
+        message = data.get("error") or f"Erro HTTP {r.status_code}"
+        raise RuntimeError(f"[{cmd}] {message}{suffix}{_hint(message, r.status_code)}")
 
     return data.get("result")
+
+
+_HINTS = (
+    ("nenhum documento aberto", "Abra um projeto com open_document ou crie um com new_project."),
+    ("não encontrado", "Use as ferramentas list_* (ex.: list_levels, list_element_types) para ver os nomes disponíveis."),
+    ("excedeu", "Feche diálogos abertos no Revit e confirme o estado do modelo antes de repetir."),
+    ("somente leitura", "O parâmetro é calculado ou controlado pelo tipo; altere o tipo (duplicate_type) ou outro parâmetro."),
+)
+
+
+def _hint(message: str, status: int) -> str:
+    """Dica de correção para erros frequentes, anexada à mensagem."""
+    if status == 401:
+        return " Dica: o token não confere; execute reload-revit-mcp.ps1 e reinicie o cliente MCP."
+    lowered = message.lower()
+    for needle, hint in _HINTS:
+        if needle in lowered:
+            return f" Dica: {hint}"
+    return ""
 
 
 def _clean(**kwargs) -> dict:

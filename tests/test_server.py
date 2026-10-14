@@ -25,14 +25,14 @@ def test_rpc_sends_command_and_args(bridge):
 
 def test_rpc_error_includes_request_id(bridge):
     srv, _ = bridge
-    with pytest.raises(RuntimeError, match=r"falhou \(requisição abc\)"):
+    with pytest.raises(RuntimeError, match=r"\[boom\] falhou \(requisição abc\)"):
         run(srv._rpc("boom"))
 
 
 def test_wrong_token_is_reported(bridge, monkeypatch):
     srv, _ = bridge
     monkeypatch.setenv("REVIT_MCP_TOKEN", "errado")
-    with pytest.raises(RuntimeError, match="Não autorizado"):
+    with pytest.raises(RuntimeError, match="Não autorizado.*reload-revit-mcp"):
         run(srv._rpc("get_info"))
 
 
