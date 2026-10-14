@@ -2145,6 +2145,11 @@ namespace RevitMcp
             using (var tx = new Transaction(doc, "MCP: Criar cômodos"))
             {
                 tx.Start();
+                // Sem isto, um ambiente sem contorno fechado ("Ambiente não está
+                // em uma região apropriadamente fechada") abre um diálogo modal
+                // de avisos no Commit() e trava o bridge indefinidamente, pois
+                // não há UI para clicar em "OK" numa automação headless.
+                ConfigureAutomaticWarningHandling(tx);
                 foreach (var (x, y, nome) in roomPoints)
                 {
                     try
@@ -2295,6 +2300,10 @@ namespace RevitMcp
             using (var tx = new Transaction(doc, "MCP: Criar ambientes nomeados"))
             {
                 tx.Start();
+                // Ver comentário equivalente em PlaceRooms: sem isto, um
+                // ambiente não delimitado trava o bridge num diálogo modal
+                // que não há como fechar numa automação headless.
+                ConfigureAutomaticWarningHandling(tx);
                 foreach (var item in items.EnumerateArray())
                 {
                     string name = GetS(item, "name", "Ambiente");
@@ -5481,6 +5490,13 @@ namespace RevitMcp
             var options = tx.GetFailureHandlingOptions();
             options.SetFailuresPreprocessor(new McpWarningPreprocessor());
             options.SetClearAfterRollback(true);
+            // Sem isto, alguns avisos (ex.: "Ambiente não está em uma região
+            // apropriadamente fechada") ainda abrem um diálogo modal no
+            // Commit() mesmo após o preprocessor descartá-los — reproduzido ao
+            // vivo: place_rooms travava o bridge por 60s esperando um clique
+            // que não existe em automação headless. SetForcedModalHandling(false)
+            // faz o Revit processar a falha via preprocessor sem forçar o modal.
+            options.SetForcedModalHandling(false);
             tx.SetFailureHandlingOptions(options);
         }
 
