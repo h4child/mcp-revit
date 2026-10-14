@@ -202,9 +202,10 @@ async def ping() -> dict:
 
 @mcp.tool()
 async def get_info() -> dict:
-    """
-    Retorna informações do Revit: versão, usuário, documento aberto,
-    vista ativa. Use para verificar o estado atual antes de começar.
+    """Estado do Revit e do documento ativo: versão, idioma, usuário, documentos abertos,
+    projeto (nome/número/cliente), salvo/modificado/workshared, unidade de comprimento do projeto,
+    contagem de níveis, eixos, paredes, portas, janelas, pisos, coberturas, ambientes, mobiliário
+    e pranchas, total de avisos e vista ativa (tipo, escala, nível). Use antes de começar.
     """
     return await _rpc("get_info")
 
@@ -231,26 +232,26 @@ async def list_categories() -> list:
 
 @mcp.tool()
 async def list_levels() -> list:
-    """
-    Lista os níveis (andares) do projeto com elevação em metros.
-    Níveis definem onde paredes e pisos são criados.
+    """Níveis em ordem de elevação: elevação (m), altura até o próximo nível (pé-direito
+    de piso a piso), se é pavimento, quantos elementos estão no nível, plantas associadas e se está fixado.
     """
     return await _rpc("list_levels")
 
 
 @mcp.tool()
 async def list_walls() -> list:
-    """
-    Lista todas as paredes do projeto com ID e comprimento em metros.
-    O ID é necessário para inserir portas e janelas.
+    """Paredes com tipo, função (externa/interna), nível base e de topo, pontos inicial/final,
+    comprimento, altura, espessura, deslocamento da base, área, se é estrutural, se delimita ambiente
+    e quantas portas/janelas hospeda. O ID é usado para inserir portas e janelas.
     """
     return await _rpc("list_walls")
 
 
 @mcp.tool()
 async def list_windows() -> list:
-    """Lista janelas colocadas, com ID, tipo, dimensões e peitoril.
-    Use o ID retornado em resize_window para modificar somente uma janela."""
+    """Janelas com família, tipo, nível, largura, altura, peitoril, altura da verga, marca,
+    parede hospedeira e ambiente.
+    """
     return await _rpc("list_windows")
 
 
@@ -469,19 +470,15 @@ async def create_level(elevation_m: float = 3.0, name: Optional[str] = None) -> 
 
 @mcp.tool()
 async def list_wall_types() -> list:
-    """
-    Lista os tipos de parede básica disponíveis (nome e espessura em metros).
-    Use o nome no parâmetro wall_type de create_wall/create_walls.
-    Exemplos comuns: "Genérico - 200 mm", "Parede divisória", "Alvenaria".
+    """Tipos de parede básica com espessura, função, quantas paredes usam cada tipo
+    e camadas (função, material, espessura, núcleo).
     """
     return await _rpc("list_wall_types")
 
 
 @mcp.tool()
 async def list_floor_types() -> list:
-    """
-    Lista os tipos de piso disponíveis (nome e espessura em metros).
-    Use o nome no parâmetro floor_type de create_floor.
+    """Tipos de piso com espessura total, quantos pisos usam cada tipo e camadas (função, material, espessura).
     """
     return await _rpc("list_floor_types")
 

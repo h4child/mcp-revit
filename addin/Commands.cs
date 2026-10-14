@@ -560,15 +560,61 @@ namespace RevitMcp
             var app = uiApp.Application;
             var uidoc = uiApp.ActiveUIDocument;
             var doc = uidoc?.Document;
+            object documento = null;
+            if (doc != null)
+            {
+                int Count(BuiltInCategory bic) => new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType().GetElementCount();
+                string lengthUnit = null;
+                try { lengthUnit = LabelUtils.GetLabelForUnit(doc.GetUnits().GetFormatOptions(SpecTypeId.Length).GetUnitTypeId()); } catch { }
+                int warnings = 0;
+                try { warnings = doc.GetWarnings().Count; } catch { }
+                var view = uidoc.ActiveView;
+                documento = new
+                {
+                    titulo = doc.Title,
+                    caminho = doc.PathName,
+                    salvo = !string.IsNullOrEmpty(doc.PathName),
+                    modificado = doc.IsModified,
+                    familia = doc.IsFamilyDocument,
+                    workshared = doc.IsWorkshared,
+                    somente_leitura = doc.IsReadOnly,
+                    projeto = doc.IsFamilyDocument ? null : new { nome = doc.ProjectInformation?.Name, numero = doc.ProjectInformation?.Number, cliente = doc.ProjectInformation?.ClientName },
+                    unidade_comprimento_projeto = lengthUnit,
+                    unidades_mcp = "metros, m², m³ e graus em todas as ferramentas",
+                    contagens = new
+                    {
+                        niveis = new FilteredElementCollector(doc).OfClass(typeof(Level)).GetElementCount(),
+                        eixos = new FilteredElementCollector(doc).OfClass(typeof(Grid)).GetElementCount(),
+                        paredes = Count(BuiltInCategory.OST_Walls),
+                        portas = Count(BuiltInCategory.OST_Doors),
+                        janelas = Count(BuiltInCategory.OST_Windows),
+                        pisos = Count(BuiltInCategory.OST_Floors),
+                        coberturas = Count(BuiltInCategory.OST_Roofs),
+                        ambientes = Count(BuiltInCategory.OST_Rooms),
+                        mobiliario = Count(BuiltInCategory.OST_Furniture),
+                        pranchas = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).GetElementCount()
+                    },
+                    avisos = warnings,
+                    vista_ativa = view == null ? null : new
+                    {
+                        id = view.Id.Value,
+                        nome = view.Name,
+                        tipo = view.ViewType.ToString(),
+                        escala = view.Scale,
+                        nivel = (view as ViewPlan)?.GenLevel?.Name
+                    }
+                };
+            }
+            var abertos = new List<string>();
+            foreach (Document d in app.Documents) abertos.Add(d.Title);
             return new
             {
-                versao = app.VersionName,
-                build = app.VersionBuild,
+                revit = new { versao = app.VersionName, numero = app.VersionNumber, build = app.VersionBuild, idioma = app.Language.ToString() },
                 usuario = app.Username,
-                documento = doc?.Title,
-                caminho = doc?.PathName,
-                vista_ativa = uidoc?.ActiveView?.Name,
-                tipo_vista = uidoc?.ActiveView?.ViewType.ToString()
+                addin = typeof(Commands).Assembly.GetName().Version?.ToString(),
+                documento,
+                documentos_abertos = abertos,
+                dica = doc == null ? "Nenhum documento ativo: use open_document ou new_project." : null
             };
         }
 
@@ -611,20 +657,41 @@ namespace RevitMcp
         /// <summary>
         /// Lista todos os níveis (andares) do projeto, com elevação em metros.
         /// </summary>
+        private static string SafeRoomLabel(FamilyInstance fi)
+        {
+            try
+            {
+                var room = fi.ToRoom ?? fi.FromRoom ?? fi.Room;
+                return room == null ? null : (room.Number + " " + room.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString()).Trim();
+            }
+            catch { return null; }
+        }
+
         private static object ListLevels(UIApplication uiApp)
         {
             var doc = RequireDoc(uiApp);
-            return new FilteredElementCollector(doc)
-                .OfClass(typeof(Level))
-                .Cast<Level>()
-                .OrderBy(l => l.Elevation)
-                .Select(l => new
-                {
-                    id = l.Id.Value,
-                    nome = l.Name,
-                    elevacao_m = Math.Round(FtToM(l.Elevation), 3)
-                })
-                .ToList();
+            var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).ToList();
+            var porNivel = new Dictionary<long, int>();
+            foreach (var e in new FilteredElementCollector(doc).WhereElementIsNotElementType())
+            {
+                if (e.Category == null) continue;
+                var lid = e.LevelId;
+                if (lid == null || lid == ElementId.InvalidElementId) continue;
+                porNivel[lid.Value] = porNivel.TryGetValue(lid.Value, out var n) ? n + 1 : 1;
+            }
+            var plantas = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan)).Cast<ViewPlan>()
+                .Where(v => !v.IsTemplate && v.GenLevel != null).ToList();
+            return levels.Select((l, i) => new
+            {
+                id = l.Id.Value,
+                nome = l.Name,
+                elevacao_m = Math.Round(FtToM(l.Elevation), 3),
+                altura_ate_proximo_m = i + 1 < levels.Count ? Math.Round(FtToM(levels[i + 1].Elevation - l.Elevation), 3) : (double?)null,
+                pavimento = l.get_Parameter(BuiltInParameter.LEVEL_IS_BUILDING_STORY)?.AsInteger() == 1,
+                elementos = porNivel.TryGetValue(l.Id.Value, out var n) ? n : 0,
+                plantas = plantas.Where(v => v.GenLevel.Id == l.Id).Select(v => new { id = v.Id.Value, nome = v.Name, tipo = v.ViewType.ToString() }).ToList(),
+                fixado = l.Pinned
+            }).ToList();
         }
 
         /// <summary>
@@ -636,14 +703,42 @@ namespace RevitMcp
             return new FilteredElementCollector(doc)
                 .OfClass(typeof(Wall))
                 .Cast<Wall>()
-                .Select(w => new
+                .Select(w =>
                 {
-                    id = w.Id.Value,
-                    nome = w.Name,
-                    comprimento_m = (w.Location is LocationCurve lc)
-                        ? Math.Round(FtToM(lc.Curve.Length), 3)
-                        : 0.0
+                    var lc = w.Location as LocationCurve;
+                    var a = lc?.Curve.GetEndPoint(0); var b = lc?.Curve.GetEndPoint(1);
+                    int inserts = 0;
+                    try { inserts = w.FindInserts(true, false, false, false).Count; } catch { }
+                    var topId = w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.AsElementId();
+                    double? Len(BuiltInParameter bip)
+                    {
+                        var p = w.get_Parameter(bip);
+                        return p != null && p.HasValue ? Math.Round(FtToM(p.AsDouble()), 3) : (double?)null;
+                    }
+                    string function = null;
+                    try { function = w.WallType.Function.ToString(); } catch { }
+                    return new
+                    {
+                        id = w.Id.Value,
+                        tipo = w.WallType?.Name,
+                        familia = w.WallType?.Kind.ToString(),
+                        funcao = function,
+                        nivel = (doc.GetElement(w.LevelId) as Level)?.Name,
+                        nivel_topo = topId != null && topId != ElementId.InvalidElementId ? doc.GetElement(topId)?.Name : null,
+                        inicio = a == null ? null : new { x_m = Math.Round(FtToM(a.X), 3), y_m = Math.Round(FtToM(a.Y), 3) },
+                        fim = b == null ? null : new { x_m = Math.Round(FtToM(b.X), 3), y_m = Math.Round(FtToM(b.Y), 3) },
+                        comprimento_m = lc != null ? Math.Round(FtToM(lc.Curve.Length), 3) : 0.0,
+                        altura_m = Len(BuiltInParameter.WALL_USER_HEIGHT_PARAM),
+                        espessura_m = Math.Round(FtToM(w.Width), 3),
+                        deslocamento_base_m = Len(BuiltInParameter.WALL_BASE_OFFSET),
+                        area_m2 = w.get_Parameter(BuiltInParameter.HOST_AREA_COMPUTED) is Parameter pa && pa.HasValue
+                            ? Math.Round(UnitUtils.ConvertFromInternalUnits(pa.AsDouble(), UnitTypeId.SquareMeters), 3) : (double?)null,
+                        estrutural = w.get_Parameter(BuiltInParameter.WALL_STRUCTURAL_SIGNIFICANT)?.AsInteger() == 1,
+                        delimita_ambiente = w.get_Parameter(BuiltInParameter.WALL_ATTR_ROOM_BOUNDING)?.AsInteger() == 1,
+                        aberturas = inserts
+                    };
                 })
+                .OrderBy(w => w.nivel).ThenBy(w => w.id)
                 .ToList();
         }
 
@@ -669,7 +764,11 @@ namespace RevitMcp
                         nivel = (doc.GetElement(w.LevelId) as Level)?.Name,
                         largura_m = width.HasValue ? Math.Round(FtToM(width.Value), 3) : (double?)null,
                         altura_m = height.HasValue ? Math.Round(FtToM(height.Value), 3) : (double?)null,
-                        peitoril_m = sill.HasValue ? Math.Round(FtToM(sill.Value), 3) : (double?)null
+                        peitoril_m = sill.HasValue ? Math.Round(FtToM(sill.Value), 3) : (double?)null,
+                        verga_m = (sill.HasValue && height.HasValue) ? Math.Round(FtToM(sill.Value + height.Value), 3) : (double?)null,
+                        marca = w.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)?.AsString(),
+                        parede_id = w.Host?.Id.Value,
+                        ambiente = SafeRoomLabel(w)
                     };
                 })
                 .OrderBy(w => w.nivel).ThenBy(w => w.id)
@@ -683,15 +782,27 @@ namespace RevitMcp
         private static object ListWallTypes(UIApplication uiApp)
         {
             var doc = RequireDoc(uiApp);
+            var uso = new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>()
+                .GroupBy(w => w.GetTypeId().Value).ToDictionary(g => g.Key, g => g.Count());
             return new FilteredElementCollector(doc)
                 .OfClass(typeof(WallType)).Cast<WallType>()
                 .Where(t => t.Kind == WallKind.Basic)
                 .OrderBy(t => t.Width)
-                .Select(t => new
+                .Select(t =>
                 {
-                    id = t.Id.Value,
-                    nome = t.Name,
-                    espessura_m = Math.Round(FtToM(t.Width), 3)
+                    string function = null;
+                    try { function = t.Function.ToString(); } catch { }
+                    CompoundStructure cs = null;
+                    try { cs = t.GetCompoundStructure(); } catch { }
+                    return new
+                    {
+                        id = t.Id.Value,
+                        nome = t.Name,
+                        espessura_m = Math.Round(FtToM(t.Width), 3),
+                        funcao = function,
+                        paredes_usando = uso.TryGetValue(t.Id.Value, out var n) ? n : 0,
+                        camadas = ArchLayers(doc, cs)
+                    };
                 })
                 .ToList();
         }
@@ -703,15 +814,24 @@ namespace RevitMcp
         private static object ListFloorTypes(UIApplication uiApp)
         {
             var doc = RequireDoc(uiApp);
+            var uso = new FilteredElementCollector(doc).OfClass(typeof(Floor)).WhereElementIsNotElementType()
+                .GroupBy(f => f.GetTypeId().Value).ToDictionary(g => g.Key, g => g.Count());
             return new FilteredElementCollector(doc)
                 .OfClass(typeof(FloorType)).Cast<FloorType>()
                 .Where(ft => !ft.IsFoundationSlab)
                 .OrderBy(ft => ft.Name)
-                .Select(ft => new
+                .Select(ft =>
                 {
-                    id = ft.Id.Value,
-                    nome = ft.Name,
-                    espessura_m = Math.Round(FtToM(ft.GetCompoundStructure()?.GetWidth() ?? 0), 3)
+                    CompoundStructure cs = null;
+                    try { cs = ft.GetCompoundStructure(); } catch { }
+                    return new
+                    {
+                        id = ft.Id.Value,
+                        nome = ft.Name,
+                        espessura_m = Math.Round(FtToM(cs?.GetWidth() ?? 0), 3),
+                        pisos_usando = uso.TryGetValue(ft.Id.Value, out var n) ? n : 0,
+                        camadas = ArchLayers(doc, cs)
+                    };
                 })
                 .ToList();
         }
