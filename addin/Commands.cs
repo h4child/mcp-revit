@@ -2133,11 +2133,6 @@ namespace RevitMcp
         // =====================================================================
 
         /// <summary>
-        /// Coloca Rooms (cômodos) em regiões fechadas por paredes.
-        /// Os pontos são fixos para a planta padrão de 3 cômodos
-        /// (Sala, Cozinha, Banheiro).
-        /// </summary>
-        /// <summary>
         /// Cria um Room em cada região fechada por paredes de todos os níveis de
         /// pavimento, usando PlanTopology/PlanCircuit (mesma técnica da função do
         /// Revit "Posicionar cômodos automaticamente"). Regiões que já têm cômodo
@@ -2168,16 +2163,34 @@ namespace RevitMcp
                     try { topology = doc.get_PlanTopology(level); }
                     catch (Exception ex) { errors.Add($"{level.Name}: {ex.Message}"); continue; }
 
+                    // circuit.IsRoomLocated não reflete cômodos já criados por
+                    // place_rooms_at/place_rooms em execuções anteriores (reproduzido
+                    // nesta sessão: redundantes na mesma região fechada), então
+                    // confirmamos pelo ponto depois de criar, não só por essa flag.
+                    var existentes = new FilteredElementCollector(doc)
+                        .OfCategory(BuiltInCategory.OST_Rooms).WhereElementIsNotElementType().OfType<Room>()
+                        .Where(r => r.LevelId == level.Id).ToList();
+
                     foreach (PlanCircuit circuit in topology.Circuits)
                     {
                         if (circuit.IsRoomLocated) continue;
                         try
                         {
                             var room = doc.Create.NewRoom(null, circuit);
-                            if (room != null)
-                                placed.Add(new { id = room.Id.Value, nome = room.Name, nivel = level.Name });
-                            else
+                            if (room == null)
+                            {
                                 errors.Add($"{level.Name}: região fechada sem cômodo criado.");
+                                continue;
+                            }
+                            var pt = (room.Location as LocationPoint)?.Point;
+                            var duplicado = pt != null && existentes.Any(r => r.Id != room.Id && r.IsPointInRoom(pt));
+                            if (duplicado)
+                            {
+                                doc.Delete(room.Id);
+                                continue;
+                            }
+                            existentes.Add(room);
+                            placed.Add(new { id = room.Id.Value, nome = room.Name, nivel = level.Name });
                         }
                         catch (Exception ex)
                         {
