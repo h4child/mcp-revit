@@ -2132,19 +2132,19 @@ namespace RevitMcp
         /// Os pontos são fixos para a planta padrão de 3 cômodos
         /// (Sala, Cozinha, Banheiro).
         /// </summary>
+        /// <summary>
+        /// Cria um Room em cada região fechada por paredes de todos os níveis de
+        /// pavimento, usando PlanTopology/PlanCircuit (mesma técnica da função do
+        /// Revit "Posicionar cômodos automaticamente"). Regiões que já têm cômodo
+        /// são ignoradas, então pode ser chamado de novo após alterar paredes.
+        /// </summary>
         private static object PlaceRooms(UIApplication uiApp)
         {
             var doc = RequireDoc(uiApp);
-            var level = FindLevel(doc, null)
-                ?? throw new Exception("Nenhum nível encontrado.");
-
-            // Pontos internos dos cômodos da planta padrão
-            var roomPoints = new (double x, double y, string nome)[]
-            {
-                (2.5, 2.5, "Sala"),
-                (6.5, 1.25, "Cozinha"),
-                (6.5, 3.75, "Banheiro"),
-            };
+            var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .Where(l => l.Name.IndexOf("Sapata", StringComparison.OrdinalIgnoreCase) < 0)
+                .OrderBy(l => l.Elevation).ToList();
+            if (levels.Count == 0) throw new Exception("Nenhum nível encontrado.");
 
             var placed = new List<object>();
             var errors = new List<string>();
@@ -2157,31 +2157,27 @@ namespace RevitMcp
                 // de avisos no Commit() e trava o bridge indefinidamente, pois
                 // não há UI para clicar em "OK" numa automação headless.
                 ConfigureAutomaticWarningHandling(tx);
-                foreach (var (x, y, nome) in roomPoints)
+                foreach (var level in levels)
                 {
-                    try
+                    PlanTopology topology;
+                    try { topology = doc.get_PlanTopology(level); }
+                    catch (Exception ex) { errors.Add($"{level.Name}: {ex.Message}"); continue; }
+
+                    foreach (PlanCircuit circuit in topology.Circuits)
                     {
-                        var uv = new UV(MToFt(x), MToFt(y));
-                        var room = doc.Create.NewRoom(level, uv);
-                        if (room != null)
+                        if (circuit.IsRoomLocated) continue;
+                        try
                         {
-                            try { room.Name = nome; } catch { }
-                            placed.Add(new
-                            {
-                                id = room.Id.Value,
-                                nome = room.Name,
-                                x_m = x,
-                                y_m = y
-                            });
+                            var room = doc.Create.NewRoom(null, circuit);
+                            if (room != null)
+                                placed.Add(new { id = room.Id.Value, nome = room.Name, nivel = level.Name });
+                            else
+                                errors.Add($"{level.Name}: região fechada sem cômodo criado.");
                         }
-                        else
+                        catch (Exception ex)
                         {
-                            errors.Add($"Cômodo não criado em ({x},{y})");
+                            errors.Add($"{level.Name}: {ex.Message}");
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        errors.Add($"({x},{y}) {nome}: {ex.Message}");
                     }
                 }
                 tx.Commit();
