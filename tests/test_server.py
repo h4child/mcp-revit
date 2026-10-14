@@ -123,3 +123,9 @@ def test_mep_run_payload(bridge):
                            width_m=0.4, height_m=0.3))
     args = fake.calls[-1]["args"]
     assert args["kind"] == "duct" and args["width_m"] == 0.4 and "diameter_m" not in args
+
+
+def test_long_commands_get_longer_timeout():
+    assert core._timeout_for("export_sheets_pdf") >= 600
+    assert core._timeout_for("purge_unused") >= 600
+    assert 120 <= core._timeout_for("create_wall") < 600
