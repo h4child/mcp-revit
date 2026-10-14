@@ -209,7 +209,7 @@ namespace RevitMcp
                 if (ProHas(args, "params", out var pmap) && pmap.ValueKind == JsonValueKind.Object)
                     foreach (var prop in pmap.EnumerateObject())
                     {
-                        var erro = ProSetParam(doc, ProLookup(doc, created, prop.Name, includeType: false), prop.Value);
+                        var erro = ProSetNamedParam(doc, created, prop.Name, prop.Value, includeType: false);
                         aplicados.Add(new { parametro = prop.Name, ok = erro == null, motivo = erro });
                     }
                 tx.Commit();

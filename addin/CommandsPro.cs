@@ -333,6 +333,20 @@ namespace RevitMcp
             return p;
         }
 
+        /// <summary>Como ProSetParam, mas trata "Name" como a propriedade Element.Name quando o
+        /// elemento (nível, grelha, vista, tipo...) não expõe o nome como Parameter pesquisável.</summary>
+        private static string ProSetNamedParam(Document doc, Element e, string name, JsonElement value, bool includeType = true)
+        {
+            var p = ProLookup(doc, e, name, includeType);
+            if (p == null && string.Equals(name, "Name", StringComparison.OrdinalIgnoreCase))
+            {
+                if (value.ValueKind != JsonValueKind.String) return "esperado texto";
+                try { e.Name = value.GetString(); return null; }
+                catch (Exception ex) { return ex.Message; }
+            }
+            return ProSetParam(doc, p, value);
+        }
+
         private static Color ProColor(JsonElement args, string name)
         {
             var s = GetS(args, name);
@@ -722,7 +736,7 @@ namespace RevitMcp
                     bool all = true;
                     foreach (var prop in pmap.EnumerateObject())
                     {
-                        var erro = ProSetParam(doc, ProLookup(doc, e, prop.Name, includeType: false), prop.Value);
+                        var erro = ProSetNamedParam(doc, e, prop.Name, prop.Value, includeType: false);
                         if (erro != null) { all = false; if (falhas.Count < 100) falhas.Add(new { id = e.Id.Value, parametro = prop.Name, motivo = erro }); }
                     }
                     if (all) ok++;

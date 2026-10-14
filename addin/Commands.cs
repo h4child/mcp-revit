@@ -4491,7 +4491,7 @@ namespace RevitMcp
                 {
                     // Unidades por grandeza: comprimento em m, área em m², volume em m³,
                     // ângulo em graus (antes todo número real era tratado como metro).
-                    var erro = ProSetParam(doc, ProLookup(doc, el, prop.Name, includeType: false), prop.Value);
+                    var erro = ProSetNamedParam(doc, el, prop.Name, prop.Value, includeType: false);
                     aplicados.Add(new { nome = prop.Name, ok = erro == null, motivo = erro });
                 }
                 tx.Commit();
