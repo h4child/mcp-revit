@@ -2780,8 +2780,11 @@ namespace RevitMcp
 
             double minPiso = stairsType.MinTreadDepth;                          // pés
             if (minPiso <= 0) minPiso = MToFt(0.28);
-            // Comprimento generoso: o Revit para no nível de topo automaticamente
-            double comprimento = nEspelhos * minPiso;
+            // Um lance reto tem um piso a menos que o número de espelhos (o
+            // espelho do topo não tem piso depois dele). Usar nEspelhos pisos
+            // aqui faz o Revit encaixar mais um espelho no comprimento sobrando
+            // e passar da elevação do nível de topo (reproduzido nesta sessão).
+            double comprimento = (nEspelhos - 1) * minPiso;
 
             // StairsEditScope exige uma vista de planta ou 3D ativa.
             // Ativa a planta do nível base para maior estabilidade.
@@ -2805,6 +2808,12 @@ namespace RevitMcp
             using (var tx = new Transaction(doc, "MCP: Adicionar lance"))
             {
                 tx.Start();
+                // Sem isto, o Revit recalcula o número de espelhos a partir do
+                // comprimento do lance e pode chegar a um valor diferente de
+                // nEspelhos (ex.: 23 em vez de 22), passando da elevação do nível
+                // de topo e disparando o aviso "extremidade superior excede...".
+                var stairsPreRun = doc.GetElement(stairsId) as Stairs;
+                if (stairsPreRun != null) stairsPreRun.DesiredRisersNumber = nEspelhos;
                 var run = StairsRun.CreateStraightRun(
                     doc, stairsId, linhaLance, StairsRunJustification.Center);
                 run.ActualRunWidth = MToFt(width);
