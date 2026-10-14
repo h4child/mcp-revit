@@ -2489,13 +2489,36 @@ namespace RevitMcp
             CurveLoop loop;
             if (args.TryGetProperty("points", out var pts) && pts.ValueKind == JsonValueKind.Array)
             {
-                // Polígono livre: [ {x:0, y:0}, {x:5, y:0}, {x:5, y:4}, {x:0, y:4} ]
+                // Polígono livre: [ {x:0, y:0}, {x:5, y:0}, ... ] — também aceita
+                // {x_m, y_m} (convenção dos demais comandos baseados em points,
+                // ex. create_topography, create_railing) e [x, y].
                 var points = new List<XYZ>();
+                int indice = 0;
                 foreach (var p in pts.EnumerateArray())
                 {
-                    double px = p.GetProperty("x").GetDouble();
-                    double py = p.GetProperty("y").GetDouble();
+                    double px, py;
+                    if (p.ValueKind == JsonValueKind.Array)
+                    {
+                        var a = p.EnumerateArray().ToList();
+                        if (a.Count < 2)
+                            throw new ArgumentException($"points[{indice}]: array precisa de [x, y].");
+                        px = a[0].GetDouble(); py = a[1].GetDouble();
+                    }
+                    else if (p.TryGetProperty("x", out var xEl) && p.TryGetProperty("y", out var yEl))
+                    {
+                        px = xEl.GetDouble(); py = yEl.GetDouble();
+                    }
+                    else if (p.TryGetProperty("x_m", out var xmEl) && p.TryGetProperty("y_m", out var ymEl))
+                    {
+                        px = xmEl.GetDouble(); py = ymEl.GetDouble();
+                    }
+                    else
+                    {
+                        throw new ArgumentException(
+                            $"points[{indice}]: informe {{\"x\":..,\"y\":..}}, {{\"x_m\":..,\"y_m\":..}} ou [x, y].");
+                    }
                     points.Add(new XYZ(MToFt(px), MToFt(py), 0));
+                    indice++;
                 }
                 if (points.Count < 3)
                     throw new Exception("Mínimo 3 pontos para criar um piso.");
@@ -5370,6 +5393,12 @@ namespace RevitMcp
                 .GroupBy(r => r.Number).Where(g => g.Count() > 1).Select(g => new { numero = g.Key, ids = g.Select(r => r.Id.Value).ToList() }).ToList();
             var duplicateSheetNumbers = sheets.Where(s => !string.IsNullOrWhiteSpace(s.SheetNumber))
                 .GroupBy(s => s.SheetNumber).Where(g => g.Count() > 1).Select(g => new { numero = g.Key, ids = g.Select(s => s.Id.Value).ToList() }).ToList();
+            // Inclui o nível na chave: duas paredes com a mesma linha em planta mas
+            // em pavimentos diferentes são empilhamento normal (e esperado) de um
+            // prédio de vários andares, não geometria duplicada. Sem isto, toda
+            // parede externa/interna alinhada entre o térreo e o pavimento de cima
+            // (o caso comum) disparava um falso positivo (reproduzido nesta sessão:
+            // 6 pares de paredes Térreo/Pavimento Superior sinalizados).
             var wallKeys = new Dictionary<string, List<long>>();
             foreach (var wall in walls)
             {
@@ -5378,7 +5407,8 @@ namespace RevitMcp
                 var a = line.GetEndPoint(0); var b = line.GetEndPoint(1);
                 string PointKey(XYZ p) => $"{Math.Round(FtToM(p.X), 3):F3},{Math.Round(FtToM(p.Y), 3):F3}";
                 var p1 = PointKey(a); var p2 = PointKey(b);
-                var key = string.CompareOrdinal(p1, p2) <= 0 ? p1 + "|" + p2 : p2 + "|" + p1;
+                var key = (string.CompareOrdinal(p1, p2) <= 0 ? p1 + "|" + p2 : p2 + "|" + p1)
+                    + "@" + wall.LevelId.Value;
                 if (!wallKeys.TryGetValue(key, out var ids)) wallKeys[key] = ids = new List<long>();
                 ids.Add(wall.Id.Value);
             }

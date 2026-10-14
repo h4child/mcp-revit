@@ -662,6 +662,14 @@ namespace RevitMcp
             string pname = GetS(cond, "parameter") ?? throw new ArgumentException("Cada condição precisa de 'parameter'.");
             string op = (GetS(cond, "op", "equals") ?? "equals").ToLowerInvariant();
             var p = ProLookup(doc, e, pname);
+            // "Name" não é um Parameter pesquisável em níveis, eixos, vistas, tipos e
+            // ambientes (é a propriedade Element.Name) — sem isto, ProLookup sempre
+            // retornava null para esses elementos e toda condição por "Name" (ex.:
+            // op "empty") batia como verdadeira para TODOS eles, mesmo nomeados
+            // (reproduzido nesta sessão: find_elements relatou os 24 ambientes, todos
+            // com nome, como "sem nome").
+            if (p == null && string.Equals(pname, "Name", StringComparison.OrdinalIgnoreCase))
+                return ProMatchesText(e.Name, op, cond);
             if (op == "empty") return p == null || !p.HasValue || string.IsNullOrEmpty(ProParamText(doc, p));
             if (op == "not_empty") return p != null && p.HasValue && !string.IsNullOrEmpty(ProParamText(doc, p));
             if (p == null) return op == "not_equals" || op == "not_contains";
@@ -695,6 +703,27 @@ namespace RevitMcp
                 case "not_contains": return !text.Contains(wanted);
                 case "starts_with": return text.StartsWith(wanted);
                 default: throw new ArgumentException($"Operador desconhecido: {op}. Use equals, not_equals, contains, not_contains, starts_with, gt, gte, lt, lte, empty, not_empty.");
+            }
+        }
+
+        /// <summary>Mesma semântica de operadores de ProMatches, para um texto que não
+        /// vem de um Parameter (ex.: Element.Name).</summary>
+        private static bool ProMatchesText(string actualRaw, string op, JsonElement cond)
+        {
+            if (op == "empty") return string.IsNullOrEmpty(actualRaw);
+            if (op == "not_empty") return !string.IsNullOrEmpty(actualRaw);
+            if (!cond.TryGetProperty("value", out var value))
+                throw new ArgumentException($"Condição '{op}' precisa de 'value'.");
+            string text = Normalizar(actualRaw ?? "");
+            string wanted = Normalizar(value.ValueKind == JsonValueKind.String ? value.GetString() : value.ToString());
+            switch (op)
+            {
+                case "equals": return text == wanted;
+                case "not_equals": return text != wanted;
+                case "contains": return text.Contains(wanted);
+                case "not_contains": return !text.Contains(wanted);
+                case "starts_with": return text.StartsWith(wanted);
+                default: throw new ArgumentException($"Operador '{op}' não se aplica a texto.");
             }
         }
 
@@ -744,7 +773,12 @@ namespace RevitMcp
                 categoria = e.Category?.Name,
                 tipo = ProTypeName(doc, e),
                 nivel = ProLevelName(doc, e),
-                parametros = fields.Count == 0 ? null : fields.ToDictionary(f => f, f => ProParamValue(doc, ProLookup(doc, e, f)))
+                parametros = fields.Count == 0 ? null : fields.ToDictionary(f => f, f =>
+                {
+                    var fp = ProLookup(doc, e, f);
+                    if (fp == null && string.Equals(f, "Name", StringComparison.OrdinalIgnoreCase)) return (object)e.Name;
+                    return ProParamValue(doc, fp);
+                })
             }).ToList();
             return new { total = all.Count, retornados = elementos.Count, elementos };
         }
