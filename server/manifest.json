@@ -730,6 +730,30 @@
     {
       "name": "create_layered_type",
       "description": "Cria tipo de parede, piso, forro ou cobertura por camadas (ordem: exterior/topo → interior/base)."
+    },
+    {
+      "name": "get_room_report",
+      "description": "Relatório de ambientes: área, perímetro, volume, pé-direito, acabamentos, portas e janelas por ambiente, totais por nível e problemas (não posicionado, não..."
+    },
+    {
+      "name": "list_area_schemes",
+      "description": "Lista esquemas de área (ex.: Área bruta, Área locável) e as plantas de área de cada um."
+    },
+    {
+      "name": "create_area_plan",
+      "description": "Cria planta de área de um nível no esquema indicado (padrão: área bruta)."
+    },
+    {
+      "name": "create_area_boundaries",
+      "description": "Cria linhas de limite de área numa planta de área."
+    },
+    {
+      "name": "place_areas",
+      "description": "Posiciona áreas nos points [{x_m,y_m}] (com names opcionais) ou em cada ambiente do nível (from_rooms=True, copiando nome e número)."
+    },
+    {
+      "name": "get_area_report",
+      "description": "Quadro de áreas por esquema e nível, com cada área (nome, número, m²) e totais."
     }
   ],
   "keywords": [

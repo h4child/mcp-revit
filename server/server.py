@@ -2295,6 +2295,57 @@ async def create_layered_type(name: str, layers: list[dict], kind: str = "wall",
         create_materials=create_materials))
 
 
+# --- Ambientes e áreas ----------------------------------------------------------
+
+@mcp.tool()
+async def get_room_report(level: Optional[str] = None) -> dict:
+    """Relatório de ambientes: área, perímetro, volume, pé-direito, acabamentos,
+    portas e janelas por ambiente, totais por nível e problemas (não posicionado,
+    não delimitado, sem porta) com a correção sugerida."""
+    return await _rpc("get_room_report", **_clean(level=level))
+
+
+@mcp.tool()
+async def list_area_schemes() -> list:
+    """Lista esquemas de área (ex.: Área bruta, Área locável) e as plantas de área de cada um."""
+    return await _rpc("list_area_schemes")
+
+
+@mcp.tool()
+async def create_area_plan(level: Optional[str] = None, scheme: Optional[str] = None,
+                           name: Optional[str] = None) -> dict:
+    """Cria planta de área de um nível no esquema indicado (padrão: área bruta).
+
+    Fluxo do quadro de áreas: create_area_plan → create_area_boundaries → place_areas → get_area_report.
+    """
+    return await _rpc("create_area_plan", **_clean(level=level, scheme=scheme, name=name))
+
+
+@mcp.tool()
+async def create_area_boundaries(area_view_id: int, source: str = "lines",
+                                 lines: Optional[list[dict]] = None, boundary: str = "finish") -> dict:
+    """Cria linhas de limite de área numa planta de área.
+
+    source="lines" usa lines=[{x1_m,y1_m,x2_m,y2_m}]; source="rooms" copia os contornos
+    dos ambientes do nível (boundary: finish, center ou core), sem duplicar divisas.
+    """
+    return await _rpc("create_area_boundaries", **_clean(
+        area_view_id=area_view_id, source=source, lines=lines, boundary=boundary))
+
+
+@mcp.tool()
+async def place_areas(area_view_id: int, from_rooms: bool = False,
+                      points: Optional[list[dict]] = None, names: Optional[list[str]] = None) -> dict:
+    """Posiciona áreas nos points [{x_m,y_m}] (com names opcionais) ou em cada ambiente
+    do nível (from_rooms=True, copiando nome e número). Retorna a área calculada de cada uma."""
+    return await _rpc("place_areas", **_clean(area_view_id=area_view_id, from_rooms=from_rooms, points=points, names=names))
+
+
+@mcp.tool()
+async def get_area_report(scheme: Optional[str] = None) -> dict:
+    """Quadro de áreas por esquema e nível, com cada área (nome, número, m²) e totais."""
+    return await _rpc("get_area_report", **_clean(scheme=scheme))
+
 # =============================================================================
 # Anotações MCP — leitura x escrita x destrutivo
 # =============================================================================
