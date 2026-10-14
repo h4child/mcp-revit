@@ -1,4 +1,4 @@
-"""Sincroniza server/manifest.json com as ferramentas declaradas em server/server.py.
+"""Sincroniza server/manifest.json com as ferramentas de server/revit_mcp/tools_*.py.
 
 Mantém as descrições já escritas e usa a primeira frase da docstring para
 ferramentas novas. Uso: python scripts/update_manifest.py
@@ -10,16 +10,17 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SERVER = ROOT / "server" / "server.py"
+TOOL_MODULES = [ROOT / "server" / "revit_mcp" / name for name in
+                ["tools_model.py", "tools_editing.py", "tools_pro.py", "tools_arch.py"]]
 MANIFEST = ROOT / "server" / "manifest.json"
 
 
 def main() -> None:
-    tree = ast.parse(SERVER.read_text(encoding="utf-8"))
+    nodes = [n for path in TOOL_MODULES for n in ast.parse(path.read_text(encoding="utf-8")).body]
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     known = {t["name"]: t["description"] for t in manifest["tools"]}
     tools = []
-    for fn in tree.body:
+    for fn in nodes:
         if not isinstance(fn, ast.AsyncFunctionDef):
             continue
         if not any(getattr(getattr(d, "func", None), "attr", None) == "tool" for d in fn.decorator_list):

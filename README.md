@@ -172,6 +172,16 @@ dotnet build .\addin\RevitMcp.csproj -c Release
 
 Sem o Revit instalado na máquina de build, o projeto compila contra os assemblies de referência da API do Revit 2025 publicados no NuGet (`Nice3point.Revit.Api.*`), que não são copiados para a saída. O CI (`.github/workflows/ci.yml`) roda os testes Python e o build do add-in a cada push e pull request.
 
+Estrutura do servidor Python:
+
+```text
+server/server.py            ponto de entrada (stdio e --check)
+server/revit_mcp/core.py    configuração, FastMCP, token, chamada RPC e health
+server/revit_mcp/tools_*.py ferramentas por área (model, editing, pro, arch)
+server/revit_mcp/annotations.py  leitura/escrita/destrutivo de cada ferramenta
+addin/*.cs                  add-in: bridge HTTP, fila na thread do Revit, comandos
+```
+
 `python scripts/update_manifest.py` sincroniza o manifesto após adicionar ferramentas. `tests/test_consistency.py` garante que todo comando enviado pelo servidor existe no add-in, que os argumentos obrigatórios são enviados e que `server/manifest.json` lista todas as ferramentas.
 
 Principais diretórios:

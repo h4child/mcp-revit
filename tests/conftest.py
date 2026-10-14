@@ -61,8 +61,9 @@ def bridge(monkeypatch, tmp_path):
     FakeBridge.calls = []
 
     import server as revit_server
+    from revit_mcp import core
 
-    monkeypatch.setattr(revit_server, "BRIDGE_URL", f"http://127.0.0.1:{server.server_port}/rpc")
+    monkeypatch.setattr(core, "BRIDGE_URL", f"http://127.0.0.1:{server.server_port}/rpc")
     monkeypatch.setenv("REVIT_MCP_TOKEN", TOKEN)
     # Um proxy no ambiente não pode interceptar chamadas ao bridge local.
     monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")

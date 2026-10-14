@@ -4,6 +4,9 @@ import json
 import pytest
 
 
+from revit_mcp import core
+
+
 def run(coro):
     return asyncio.run(coro)
 
@@ -36,8 +39,8 @@ def test_wrong_token_is_reported(bridge, monkeypatch):
 def test_missing_token(bridge, monkeypatch, tmp_path):
     srv, _ = bridge
     monkeypatch.delenv("REVIT_MCP_TOKEN")
-    monkeypatch.setattr(srv, "CONFIG_PATH", tmp_path / "nao-existe.json")
-    monkeypatch.setattr(srv, "WORKSPACE_CONFIG_PATH", tmp_path / "nao-existe2.json")
+    monkeypatch.setattr(core, "CONFIG_PATH", tmp_path / "nao-existe.json")
+    monkeypatch.setattr(core, "WORKSPACE_CONFIG_PATH", tmp_path / "nao-existe2.json")
     with pytest.raises(RuntimeError, match="Token do RevitMcp não encontrado"):
         run(srv._rpc("get_info"))
 
@@ -48,20 +51,20 @@ def test_token_read_from_bridge_json_with_bom(bridge, monkeypatch, tmp_path):
     cfg = tmp_path / "bridge.json"
     # PowerShell 5.1 grava UTF-8 com BOM.
     cfg.write_text(json.dumps({"token": "token-de-teste"}), encoding="utf-8-sig")
-    monkeypatch.setattr(srv, "CONFIG_PATH", cfg)
+    monkeypatch.setattr(core, "CONFIG_PATH", cfg)
     assert run(srv._rpc("get_info"))["echo"]["cmd"] == "get_info"
 
 
 def test_bridge_offline_message(bridge, monkeypatch):
     srv, _ = bridge
-    monkeypatch.setattr(srv, "BRIDGE_URL", "http://127.0.0.1:1/rpc")
+    monkeypatch.setattr(core, "BRIDGE_URL", "http://127.0.0.1:1/rpc")
     with pytest.raises(RuntimeError, match="Não foi possível conectar ao Revit"):
         run(srv._rpc("get_info"))
 
 
 def test_remote_url_rejected(bridge, monkeypatch):
     srv, _ = bridge
-    monkeypatch.setattr(srv, "BRIDGE_URL", "http://10.0.0.5:14733/rpc")
+    monkeypatch.setattr(core, "BRIDGE_URL", "http://10.0.0.5:14733/rpc")
     monkeypatch.delenv("REVIT_MCP_ALLOW_REMOTE", raising=False)
     with pytest.raises(RuntimeError, match="bridge HTTP local"):
         run(srv._rpc("get_info"))
@@ -76,14 +79,12 @@ def test_ceiling_plan_translates_corners(bridge):
 
 
 def test_bridge_url_uses_port_from_config(monkeypatch, tmp_path):
-    import server as srv
-
     cfg = tmp_path / "bridge.json"
     cfg.write_text(json.dumps({"token": "x", "port": 15000}), encoding="utf-8")
     monkeypatch.delenv("REVIT_MCP_URL", raising=False)
     monkeypatch.delenv("REVIT_MCP_PORT", raising=False)
-    monkeypatch.setattr(srv, "CONFIG_PATH", cfg)
-    assert srv._bridge_url() == "http://127.0.0.1:15000/rpc"
+    monkeypatch.setattr(core, "CONFIG_PATH", cfg)
+    assert core._bridge_url() == "http://127.0.0.1:15000/rpc"
 
 
 def test_check_cli(bridge, capsys):

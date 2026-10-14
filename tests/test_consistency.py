@@ -7,7 +7,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CS = "\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "addin").glob("Commands*.cs")))
-PY = ast.parse((ROOT / "server" / "server.py").read_text(encoding="utf-8"))
+# Todas as ferramentas MCP ficam nos módulos server/revit_mcp/tools_*.py.
+PY = ast.Module(body=[node for path in [ROOT / "server" / "revit_mcp" / name for name in
+                ["tools_model.py", "tools_editing.py", "tools_pro.py", "tools_arch.py"]]
+                      for node in ast.parse(path.read_text(encoding="utf-8")).body], type_ignores=[])
 
 CASES = dict(re.findall(r'case "(\w+)":\s*return (\w+)\(', CS))
 CASES.pop("ping", None)
