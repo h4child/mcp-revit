@@ -6,10 +6,11 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CS = (ROOT / "addin" / "Commands.cs").read_text(encoding="utf-8")
+CS = "\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "addin").glob("Commands*.cs")))
 PY = ast.parse((ROOT / "server" / "server.py").read_text(encoding="utf-8"))
 
 CASES = dict(re.findall(r'case "(\w+)":\s*return (\w+)\(', CS))
+CASES.pop("ping", None)
 
 
 def _tools():
@@ -40,7 +41,7 @@ def _method_bodies():
 
 
 BODIES = _method_bodies()
-REQUIRED = re.compile(r'Get\w*Req\(\s*args\s*,\s*"(\w+)"')
+REQUIRED = re.compile(r'(?:Get\w*Req\(\s*args\s*,\s*"(\w+)"|ProIds\(\s*args\s*,\s*"(\w+)"\s*,\s*required:\s*true)')
 
 
 def _required_keys(method, seen=None):
@@ -49,7 +50,7 @@ def _required_keys(method, seen=None):
         return set()
     seen.add(method)
     body = BODIES[method]
-    keys = set(REQUIRED.findall(body))
+    keys = {a or b for a, b in REQUIRED.findall(body)}
     for callee in re.findall(r"(\w+)\([^()]*\bargs\b", body):
         if callee != method and callee in BODIES and callee != "ExecutarComando":
             keys |= _required_keys(callee, seen)
@@ -80,6 +81,8 @@ def test_required_arguments_are_sent():
                         sent |= {k.value for k in node.keys if isinstance(k, ast.Constant)}
                     if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
                         sent.add(node.slice.value)
+                    if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_clean":
+                        sent |= {k.arg for k in node.keywords if k.arg}
             missing = _required_keys(CASES[cmd]) - sent
             if missing:
                 problems.append(f"{fn.name}: {sorted(missing)}")

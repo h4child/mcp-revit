@@ -23,6 +23,30 @@ Servidor Python (FastMCP) ── token local ──► Add-in .NET no Revit
 
 > O MCP é uma ferramenta de automação. A validação de normas, compatibilização, quantitativos e responsabilidade técnica continuam exigindo revisão profissional humana.
 
+## Recursos profissionais (todas as disciplinas)
+
+| Área | Ferramentas |
+|---|---|
+| Dados do projeto | `get_project_info`, `set_project_info`, `get_project_location`, `list_phases`, `set_element_phase`, `create_workset`, `set_element_workset`, `list_project_parameters`, `create_project_parameter` |
+| Consulta e edição em massa | `find_elements` (filtros por categoria, nível, tipo e parâmetros), `set_parameters_bulk` (instância ou tipo, numa transação) |
+| Vistas | `duplicate_view`, `set_view_properties`, `create_elevations`, `create_3d_view`, `create_drafting_view`, `create_view_filter`/`apply_view_filter`, `create_rule_filter` (filtro com regras de parâmetro), `set_category_override`, `set_element_override`, `reset_overrides`, `override_elements_in_view`, `set_category_visibility`, `tag_elements` |
+| Documentação | `list_sheets`, `list_titleblocks`, `create_sheets`, `list_revisions`, `create_revision`, `add_revision_to_sheets`, `list_schedules`, `create_schedule_advanced`, `get_schedule_data` |
+| Exportação | `export_sheets_pdf`, `export_sheets_dwg`, `export_schedule_csv` |
+| Coordenação e qualidade | `analyze_clashes`, `analyze_quantities`, `analyze_material_takeoff`, `preview_purge_unused`, `purge_unused`, `list_links`, `load_revit_link`, `reload_link` |
+| Estrutura | `create_beam`, `create_foundation` (sapatas isoladas e corridas), além de `create_column` e `create_grid` |
+| MEP | `list_mep_types`, `create_mep_run` (dutos, tubos, eletrocalhas e eletrodutos com curvas), `create_spaces_from_rooms` |
+| Modelagem geral | `array_elements`, `create_group`, `list_groups`, `place_group`, `create_room_separators` |
+
+Unidades: comprimentos em metros, áreas em m², volumes em m³ e ângulos em graus — inclusive ao ler ou gravar parâmetros (`find_elements`, `set_parameters_bulk`, `modify_parameters`). Outras grandezas usam a unidade de exibição do projeto, ou texto como `"25 mm"`, interpretado pelo Revit.
+
+Exemplos de pedidos à IA:
+
+- "Crie as pranchas A-101 a A-105 com o carimbo A1, adicione a revisão 'Aprovação prefeitura' e exporte tudo em um PDF."
+- "Liste as portas sem Marca no térreo e numere-as P01, P02..."
+- "Verifique interferências entre vigas e dutos e crie uma vista 3D isolando cada conflito."
+- "Crie o parâmetro 'Acabamento de piso' em Ambientes e uma tabela com Número, Nome, Área e esse parâmetro."
+- "Faça um quantitativo de paredes, pisos e esquadrias por tipo para o orçamento."
+
 ## Requisitos
 
 - Windows 10/11
@@ -114,6 +138,8 @@ pip install -r requirements-dev.txt
 python -m pytest tests            # servidor contra um bridge falso + contrato Python/C#/manifesto
 dotnet build .\addin\RevitMcp.csproj -c Release
 ```
+
+Sem o Revit instalado na máquina de build, o projeto compila contra os assemblies de referência da API do Revit 2025 publicados no NuGet (`Nice3point.Revit.Api.*`), que não são copiados para a saída. O CI (`.github/workflows/ci.yml`) roda os testes Python e o build do add-in a cada push e pull request.
 
 `tests/test_consistency.py` garante que todo comando enviado pelo servidor existe no add-in, que os argumentos obrigatórios são enviados e que `server/manifest.json` lista todas as ferramentas.
 
