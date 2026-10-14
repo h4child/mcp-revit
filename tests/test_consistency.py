@@ -99,3 +99,18 @@ def test_manifest_lists_every_tool():
 def test_tool_names_unique():
     names = [f.name for f in _tools()]
     assert len(names) == len(set(names))
+
+
+def test_every_tool_has_annotations():
+    import server
+
+    tools = server.mcp._tool_manager.list_tools()
+    missing = [t.name for t in tools if t.annotations is None or t.annotations.readOnlyHint is None]
+    assert not missing, missing
+    by_name = {t.name: t.annotations for t in tools}
+    assert by_name["list_levels"].readOnlyHint is True
+    assert by_name["find_elements"].readOnlyHint is True
+    assert by_name["create_wall"].readOnlyHint is False and by_name["create_wall"].destructiveHint is False
+    assert by_name["delete_element"].destructiveHint is True
+    assert by_name["purge_unused"].destructiveHint is True
+    assert by_name["export_sheets_pdf"].readOnlyHint is False and by_name["export_sheets_pdf"].destructiveHint is False
