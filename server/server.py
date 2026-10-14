@@ -2346,6 +2346,63 @@ async def get_area_report(scheme: Optional[str] = None) -> dict:
     """Quadro de áreas por esquema e nível, com cada área (nome, número, m²) e totais."""
     return await _rpc("get_area_report", **_clean(scheme=scheme))
 
+# --- Organização e documentação ---------------------------------------------
+
+@mcp.tool()
+async def create_shaft_opening(points: list[dict], bottom_level: str, top_level: str,
+                               base_offset_m: float = 0, top_offset_m: float = 0) -> dict:
+    """Cria shaft (abertura vertical) pelo contorno points [{x_m,y_m}] entre dois níveis,
+    cortando lajes, forros e coberturas (poços de elevador, dutos, escadas)."""
+    return await _rpc("create_shaft_opening", points=points, bottom_level=bottom_level, top_level=top_level,
+                      base_offset_m=base_offset_m, top_offset_m=top_offset_m)
+
+
+@mcp.tool()
+async def dimension_grids(view_id: Optional[int] = None, offset_m: float = 1.5, overall: bool = True) -> dict:
+    """Cota automaticamente os eixos de uma planta: uma corrente por direção e, com overall=True,
+    a cota total. Retorna os valores de cada segmento em metros."""
+    return await _rpc("dimension_grids", **_clean(view_id=view_id, offset_m=offset_m, overall=overall))
+
+
+@mcp.tool()
+async def pin_elements(ids: Optional[list[int]] = None, categories: Optional[list[str]] = None,
+                       pinned: bool = True) -> dict:
+    """Fixa (ou libera, pinned=False) elementos para evitar deslocamentos acidentais.
+    Ex.: categories=["Grids", "Levels"] após definir eixos e níveis."""
+    return await _rpc("pin_elements", **_clean(ids=ids, categories=categories, pinned=pinned))
+
+
+@mcp.tool()
+async def set_selection(ids: list[int], zoom: bool = True) -> dict:
+    """Seleciona elementos na interface do Revit (e enquadra com zoom=True) para o usuário revisar."""
+    return await _rpc("set_selection", ids=ids, zoom=zoom)
+
+
+@mcp.tool()
+async def get_element_relationships(element_id: int) -> dict:
+    """Relações de um elemento: hospedeiro, elementos hospedados (portas/janelas da parede),
+    elementos unidos, ambiente(s) (de/para em portas), grupo, workset, fases, opção de projeto
+    e quantos dependentes seriam excluídos junto."""
+    return await _rpc("get_element_relationships", element_id=element_id)
+
+
+@mcp.tool()
+async def list_view_templates() -> list:
+    """Lista templates de vista com tipo, escala, nível de detalhe e quantas vistas usam cada um."""
+    return await _rpc("list_view_templates")
+
+
+@mcp.tool()
+async def create_view_template(name: str, view_id: Optional[int] = None, apply_to_source: bool = False) -> dict:
+    """Cria template de vista a partir de uma vista configurada (ativa por padrão), para padronizar plantas, cortes e elevações."""
+    return await _rpc("create_view_template", **_clean(name=name, view_id=view_id, apply_to_source=apply_to_source))
+
+
+@mcp.tool()
+async def list_design_options() -> dict:
+    """Lista opções de projeto (conjunto, principal, ativa) para estudos de alternativas."""
+    return await _rpc("list_design_options")
+
 # =============================================================================
 # Anotações MCP — leitura x escrita x destrutivo
 # =============================================================================

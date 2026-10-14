@@ -754,6 +754,38 @@
     {
       "name": "get_area_report",
       "description": "Quadro de áreas por esquema e nível, com cada área (nome, número, m²) e totais."
+    },
+    {
+      "name": "create_shaft_opening",
+      "description": "Cria shaft (abertura vertical) pelo contorno points [{x_m,y_m}] entre dois níveis, cortando lajes, forros e coberturas (poços de elevador, dutos, escadas)."
+    },
+    {
+      "name": "dimension_grids",
+      "description": "Cota automaticamente os eixos de uma planta: uma corrente por direção e, com overall=True, a cota total."
+    },
+    {
+      "name": "pin_elements",
+      "description": "Fixa (ou libera, pinned=False) elementos para evitar deslocamentos acidentais."
+    },
+    {
+      "name": "set_selection",
+      "description": "Seleciona elementos na interface do Revit (e enquadra com zoom=True) para o usuário revisar."
+    },
+    {
+      "name": "get_element_relationships",
+      "description": "Relações de um elemento: hospedeiro, elementos hospedados (portas/janelas da parede), elementos unidos, ambiente(s) (de/para em portas), grupo, workset,..."
+    },
+    {
+      "name": "list_view_templates",
+      "description": "Lista templates de vista com tipo, escala, nível de detalhe e quantas vistas usam cada um."
+    },
+    {
+      "name": "create_view_template",
+      "description": "Cria template de vista a partir de uma vista configurada (ativa por padrão), para padronizar plantas, cortes e elevações."
+    },
+    {
+      "name": "list_design_options",
+      "description": "Lista opções de projeto (conjunto, principal, ativa) para estudos de alternativas."
     }
   ],
   "keywords": [

@@ -10,6 +10,8 @@
 //     cobertura por camadas (CompoundStructure).
 //   • Áreas: relatório de ambientes (áreas, acabamentos, portas, problemas),
 //     planos de área, limites, áreas e quadro de áreas por esquema/nível.
+//   • Organização: shafts, cotas de eixos, fixar elementos, seleção na
+//     interface, relações de um elemento, templates de vista e opções de projeto.
 //
 // Regra de estabilidade (ver d618f8e): nunca encadear LINQ diretamente sobre
 // coleções antigas da API (ParameterSet, PhaseArray, *Array, *Set); usar
@@ -46,6 +48,16 @@ namespace RevitMcp
                 case "create_area_boundaries": return CreateAreaBoundaries(uiApp, a);
                 case "place_areas":          return PlaceAreas(uiApp, a);
                 case "get_area_report":      return GetAreaReport(uiApp, a);
+
+                // --- Organização e documentação ---
+                case "create_shaft_opening": return CreateShaftOpening(uiApp, a);
+                case "dimension_grids":      return DimensionGrids(uiApp, a);
+                case "pin_elements":         return PinElements(uiApp, a);
+                case "set_selection":        return SetSelection(uiApp, a);
+                case "get_element_relationships": return GetElementRelationships(uiApp, a);
+                case "list_view_templates":  return ListViewTemplates(uiApp);
+                case "create_view_template": return CreateViewTemplate(uiApp, a);
+                case "list_design_options":  return ListDesignOptions(uiApp);
 
                 default:
                     throw new ArgumentException($"Comando desconhecido: {req.cmd}");
@@ -631,6 +643,255 @@ namespace RevitMcp
                 areas_nao_delimitadas = linhas.Count(l => l.area <= 0),
                 dica = linhas.Count == 0 ? "Nenhuma área. Fluxo: create_area_plan → create_area_boundaries → place_areas." : null
             };
+        }
+
+        // =====================================================================
+        // ORGANIZAÇÃO E DOCUMENTAÇÃO
+        // =====================================================================
+
+        private static object CreateShaftOpening(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var bottom = FindLevel(doc, GetS(args, "bottom_level")) ?? throw new Exception("Nível inferior não encontrado.");
+            var topName = GetS(args, "top_level") ?? throw new ArgumentException("top_level obrigatório.");
+            var top = FindLevel(doc, topName) ?? throw new Exception($"Nível superior '{topName}' não encontrado.");
+            if (top.Elevation <= bottom.Elevation) throw new ArgumentException("top_level precisa estar acima de bottom_level.");
+            var pts = ProPoints(args, "points", bottom.Elevation);
+            if (pts.Count < 3) throw new ArgumentException("O contorno do shaft precisa de ao menos 3 pontos.");
+            var profile = new CurveArray();
+            for (int i = 0; i < pts.Count; i++) profile.Append(Line.CreateBound(pts[i], pts[(i + 1) % pts.Count]));
+            using (var tx = ProTx(doc, "Shaft"))
+            {
+                var opening = doc.Create.NewOpening(bottom, top, profile);
+                double topOffset = GetD(args, "top_offset_m", 0), baseOffset = GetD(args, "base_offset_m", 0);
+                if (topOffset != 0) opening.get_Parameter(BuiltInParameter.WALL_TOP_OFFSET)?.Set(MToFt(topOffset));
+                if (baseOffset != 0) opening.get_Parameter(BuiltInParameter.WALL_BASE_OFFSET)?.Set(MToFt(baseOffset));
+                tx.Commit();
+                double area = 0;
+                for (int i = 0; i < pts.Count; i++) area += pts[i].X * pts[(i + 1) % pts.Count].Y - pts[(i + 1) % pts.Count].X * pts[i].Y;
+                return new
+                {
+                    id = opening.Id.Value,
+                    nivel_inferior = bottom.Name,
+                    nivel_superior = top.Name,
+                    vertices = pts.Count,
+                    area_secao_m2 = Math.Round(Math.Abs(area) / 2 * 0.3048 * 0.3048, 3),
+                    observacao = "O shaft corta pisos, forros e coberturas entre os níveis."
+                };
+            }
+        }
+
+        private static object DimensionGrids(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var view = ProView(uiApp, doc, args);
+            if (!(view is ViewPlan)) throw new InvalidOperationException("Cotas de eixos exigem uma vista de planta.");
+            double offset = MToFt(GetD(args, "offset_m", 1.5));
+            bool overall = ProBool(args, "overall", true);
+            var grids = new FilteredElementCollector(doc, view.Id).OfClass(typeof(Grid)).Cast<Grid>()
+                .Where(g => g.Curve is Line).ToList();
+            if (grids.Count < 2) throw new InvalidOperationException("São necessários ao menos 2 eixos retos visíveis na vista.");
+
+            // Agrupa por direção: eixos paralelos recebem uma corrente de cotas.
+            var groups = new List<List<Grid>>();
+            foreach (var g in grids)
+            {
+                var dir = ((Line)g.Curve).Direction;
+                var group = groups.FirstOrDefault(gr => Math.Abs(((Line)gr[0].Curve).Direction.CrossProduct(dir).Z) < 1e-6);
+                if (group == null) groups.Add(new List<Grid> { g }); else group.Add(g);
+            }
+            var criadas = new List<object>();
+            using (var tx = ProTx(doc, "Cotas de eixos"))
+            {
+                foreach (var group in groups.Where(gr => gr.Count >= 2))
+                {
+                    var line0 = (Line)group[0].Curve;
+                    var dir = line0.Direction.Normalize();
+                    var normal = new XYZ(-dir.Y, dir.X, 0);
+                    var ordered = group.OrderBy(g => ((Line)g.Curve).Origin.DotProduct(normal)).ToList();
+                    // A cota passa além da extremidade dos eixos (lado "fim" de cada um).
+                    double along = ordered.Max(g => Math.Max(((Line)g.Curve).GetEndPoint(0).DotProduct(dir), ((Line)g.Curve).GetEndPoint(1).DotProduct(dir))) - offset;
+                    double minN = ordered.First().Curve.GetEndPoint(0).DotProduct(normal);
+                    double maxN = ordered.Last().Curve.GetEndPoint(0).DotProduct(normal);
+                    XYZ P(double n, double a) => normal * n + dir * a + new XYZ(0, 0, view.GenLevel?.Elevation ?? 0);
+                    var refs = new ReferenceArray();
+                    foreach (var g in ordered) refs.Append(new Reference(g));
+                    var chain = doc.Create.NewDimension(view, Line.CreateBound(P(minN - 1, along), P(maxN + 1, along)), refs);
+                    criadas.Add(new { id = chain.Id.Value, tipo = "corrente", eixos = ordered.Select(g => g.Name).ToList(), valores_m = ArchDimValues(chain) });
+                    if (overall && ordered.Count > 2)
+                    {
+                        var ends = new ReferenceArray();
+                        ends.Append(new Reference(ordered.First()));
+                        ends.Append(new Reference(ordered.Last()));
+                        var total = doc.Create.NewDimension(view, Line.CreateBound(P(minN - 1, along - offset * 0.6), P(maxN + 1, along - offset * 0.6)), ends);
+                        criadas.Add(new { id = total.Id.Value, tipo = "total", eixos = new[] { ordered.First().Name, ordered.Last().Name }, valores_m = ArchDimValues(total) });
+                    }
+                }
+                tx.Commit();
+            }
+            return new { vista = view.Name, cotas = criadas };
+        }
+
+        private static List<double> ArchDimValues(Dimension d)
+        {
+            var values = new List<double>();
+            try
+            {
+                if (d.NumberOfSegments == 0) { if (d.Value.HasValue) values.Add(Math.Round(FtToM(d.Value.Value), 3)); }
+                else foreach (DimensionSegment seg in d.Segments) if (seg.Value.HasValue) values.Add(Math.Round(FtToM(seg.Value.Value), 3));
+            }
+            catch { }
+            return values;
+        }
+
+        private static object PinElements(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var ids = ProIds(args, "ids");
+            bool pinned = ProBool(args, "pinned", true);
+            var cats = ProCategories(args, "categories");
+            var elements = ids.Select(doc.GetElement).Where(e => e != null).ToList();
+            foreach (var bic in cats)
+                elements.AddRange(new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType().ToElements());
+            if (elements.Count == 0) throw new ArgumentException("Informe ids ou categories (ex.: [\"Grids\", \"Levels\"]).");
+            int changed = 0;
+            var falhas = new List<object>();
+            using (var tx = ProTx(doc, pinned ? "Fixar elementos" : "Liberar elementos"))
+            {
+                foreach (var e in elements)
+                {
+                    try { if (e.Pinned != pinned) { e.Pinned = pinned; changed++; } }
+                    catch (Exception ex) { falhas.Add(new { id = e.Id.Value, motivo = ex.Message }); }
+                }
+                tx.Commit();
+            }
+            return new { fixado = pinned, elementos = elements.Count, alterados = changed, ja_estavam = elements.Count - changed - falhas.Count, falhas };
+        }
+
+        private static object SetSelection(UIApplication uiApp, JsonElement args)
+        {
+            var uidoc = uiApp.ActiveUIDocument ?? throw new Exception("Nenhum documento ativo.");
+            var ids = ProIds(args, "ids").Where(id => uidoc.Document.GetElement(id) != null).ToList();
+            uidoc.Selection.SetElementIds(ids);
+            if (ids.Count > 0 && ProBool(args, "zoom", true)) uidoc.ShowElements(ids);
+            return new { selecionados = ids.Count, ids = ids.Select(i => i.Value).ToList() };
+        }
+
+        private static object GetElementRelationships(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var id = GetElementIdReq(args, "element_id");
+            var e = doc.GetElement(id) ?? throw new ArgumentException($"Elemento {id.Value} não existe.");
+            object Brief(Element x) => x == null ? null : new { id = x.Id.Value, categoria = x.Category?.Name, nome = x.Name, tipo = ProTypeName(doc, x) };
+
+            var fi = e as FamilyInstance;
+            List<object> hospedados = null;
+            if (e is HostObject host)
+            {
+                try { hospedados = host.FindInserts(true, true, true, true).Select(i => Brief(doc.GetElement(i))).ToList(); } catch { }
+            }
+            List<object> unidos = null;
+            try { unidos = JoinGeometryUtils.GetJoinedElements(doc, e).Select(i => Brief(doc.GetElement(i))).ToList(); } catch { }
+
+            object ambientes = null;
+            if (fi != null)
+            {
+                try
+                {
+                    ambientes = new
+                    {
+                        ambiente = fi.Room == null ? null : new { id = fi.Room.Id.Value, numero = fi.Room.Number, nome = ArchParamText(fi.Room, BuiltInParameter.ROOM_NAME) },
+                        de = fi.FromRoom == null ? null : new { id = fi.FromRoom.Id.Value, numero = fi.FromRoom.Number, nome = ArchParamText(fi.FromRoom, BuiltInParameter.ROOM_NAME) },
+                        para = fi.ToRoom == null ? null : new { id = fi.ToRoom.Id.Value, numero = fi.ToRoom.Number, nome = ArchParamText(fi.ToRoom, BuiltInParameter.ROOM_NAME) }
+                    };
+                }
+                catch { }
+            }
+            else
+            {
+                var pt = ProElementPoint(e);
+                var room = pt == null ? null : doc.GetRoomAtPoint(pt);
+                if (room != null) ambientes = new { ambiente = new { id = room.Id.Value, numero = room.Number, nome = ArchParamText(room, BuiltInParameter.ROOM_NAME) } };
+            }
+
+            int dependentes = 0;
+            try { dependentes = e.GetDependentElements(null).Count - 1; } catch { }
+            string workset = null;
+            try { if (doc.IsWorkshared) workset = doc.GetWorksetTable().GetWorkset(e.WorksetId)?.Name; } catch { }
+            string faseCriacao = null, faseDemolicao = null;
+            try
+            {
+                if (e.CreatedPhaseId != ElementId.InvalidElementId) faseCriacao = doc.GetElement(e.CreatedPhaseId)?.Name;
+                if (e.DemolishedPhaseId != ElementId.InvalidElementId) faseDemolicao = doc.GetElement(e.DemolishedPhaseId)?.Name;
+            }
+            catch { }
+
+            return new
+            {
+                elemento = ChangeTracker.Describe(doc, e),
+                hospedeiro = Brief(fi?.Host),
+                hospedados,
+                unidos,
+                ambientes,
+                grupo = e.GroupId != ElementId.InvalidElementId ? Brief(doc.GetElement(e.GroupId)) : null,
+                fixado = e.Pinned,
+                workset,
+                fase_criacao = faseCriacao,
+                fase_demolicao = faseDemolicao,
+                opcao_projeto = e.DesignOption?.Name,
+                elementos_dependentes = Math.Max(0, dependentes),
+                observacao = dependentes > 0 ? "Excluir este elemento também remove os dependentes (use preview_delete)." : null
+            };
+        }
+
+        private static object ListViewTemplates(UIApplication uiApp)
+        {
+            var doc = RequireDoc(uiApp);
+            var views = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().ToList();
+            var uso = views.Where(v => !v.IsTemplate && v.ViewTemplateId != ElementId.InvalidElementId)
+                .GroupBy(v => v.ViewTemplateId.Value).ToDictionary(g => g.Key, g => g.Count());
+            return views.Where(v => v.IsTemplate).OrderBy(v => v.ViewType.ToString()).ThenBy(v => v.Name)
+                .Select(v => new
+                {
+                    id = v.Id.Value,
+                    nome = v.Name,
+                    tipo_vista = v.ViewType.ToString(),
+                    escala = v.Scale,
+                    nivel_detalhe = v.DetailLevel.ToString(),
+                    vistas_usando = uso.TryGetValue(v.Id.Value, out var n) ? n : 0
+                }).ToList();
+        }
+
+        private static object CreateViewTemplate(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var view = ProView(uiApp, doc, args);
+            if (view.IsTemplate) throw new ArgumentException("A vista informada já é um template.");
+            if (!view.CanViewBeDuplicated(ViewDuplicateOption.Duplicate) && view.ViewType == ViewType.Schedule)
+                throw new InvalidOperationException("Este tipo de vista não gera template.");
+            using (var tx = ProTx(doc, "Criar template de vista"))
+            {
+                var template = view.CreateViewTemplate();
+                var name = GetS(args, "name");
+                if (!string.IsNullOrWhiteSpace(name)) template.Name = name;
+                if (ProBool(args, "apply_to_source", false)) view.ViewTemplateId = template.Id;
+                tx.Commit();
+                return new { id = template.Id.Value, nome = template.Name, origem = view.Name, tipo_vista = template.ViewType.ToString(), aplicado_na_origem = ProBool(args, "apply_to_source", false) };
+            }
+        }
+
+        private static object ListDesignOptions(UIApplication uiApp)
+        {
+            var doc = RequireDoc(uiApp);
+            var active = DesignOption.GetActiveDesignOptionId(doc);
+            var opcoes = new FilteredElementCollector(doc).OfClass(typeof(DesignOption)).Cast<DesignOption>()
+                .Select(o =>
+                {
+                    string set = null;
+                    try { var p = o.get_Parameter(BuiltInParameter.OPTION_SET_ID); if (p != null) set = doc.GetElement(p.AsElementId())?.Name; } catch { }
+                    return new { id = o.Id.Value, nome = o.Name, conjunto = set, principal = o.IsPrimary, ativa = o.Id == active };
+                }).OrderBy(o => o.conjunto).ThenBy(o => o.nome).ToList();
+            return new { quantidade = opcoes.Count, opcoes, observacao = opcoes.Count == 0 ? "O projeto não usa opções de projeto." : null };
         }
     }
 }

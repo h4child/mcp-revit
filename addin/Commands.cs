@@ -330,6 +330,7 @@ namespace RevitMcp
                 || cmd.StartsWith("find_", StringComparison.OrdinalIgnoreCase)
                 || cmd == "ping" || cmd == "bridge_health" || cmd == "save_document"
                 || cmd == "backup_document" || cmd == "plan_batch" || cmd == "screenshot"
+                || cmd == "set_selection" || cmd == "focus_element" || cmd == "zoom_fit"
                 || cmd == "new_project" || cmd == "open_document" || cmd == "save_as"
                 || cmd.StartsWith("export_", StringComparison.OrdinalIgnoreCase));
         }
@@ -1088,7 +1089,9 @@ namespace RevitMcp
             "place_rooms_at", "set_plan_crop", "set_wall_join", "set_line_style",
             "create_beam", "create_foundation", "create_mep_run", "create_sheets",
             "set_parameters_bulk", "array_elements", "create_room_separators",
-            "set_element_workset", "tag_elements", "override_elements_in_view", "set_category_visibility"
+            "set_element_workset", "tag_elements", "override_elements_in_view", "set_category_visibility",
+            "duplicate_type", "change_element_type", "create_layered_type", "create_shaft_opening",
+            "pin_elements", "create_area_boundaries", "place_areas"
         };
 
         /// <summary>Valida e explica um lote antes de ele tocar no modelo.</summary>
