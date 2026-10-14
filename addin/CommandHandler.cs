@@ -139,10 +139,17 @@ namespace RevitMcp
                         cancelled = !item.Started;
                         if (cancelled) item.Cancelled = true;
                     }
+                    // Se um diálogo do Revit apareceu durante a espera, relata o conteúdo
+                    // em vez de só sugerir "veja se há diálogo aberto" — ele pode já ter
+                    // sido fechado sozinho (OnDialogBoxShowing) ou ainda estar esperando
+                    // um clique que não existe numa automação headless.
+                    string diagnosticoDialogo = App.LastDialogTime.HasValue &&
+                        (DateTime.Now - App.LastDialogTime.Value).TotalMilliseconds < timeoutMs + 5000
+                        ? $" Diálogo do Revit detectado durante a espera: {App.LastDialogMessage}. Se ainda estiver aberto, feche-o e repita a chamada."
+                        : " Verifique se há alguma janela de diálogo aberta no Revit.";
                     throw new TimeoutException(cancelled
-                        ? $"Comando Revit excedeu {timeoutMs / 1000}s e foi cancelado antes da execução. " +
-                          "Verifique se há alguma janela de diálogo aberta no Revit."
-                        : $"Comando Revit excedeu {timeoutMs / 1000}s após iniciar e pode ainda estar sendo concluído. " +
+                        ? $"Comando Revit excedeu {timeoutMs / 1000}s e foi cancelado antes da execução.{diagnosticoDialogo}"
+                        : $"Comando Revit excedeu {timeoutMs / 1000}s após iniciar e pode ainda estar sendo concluído.{diagnosticoDialogo} " +
                           "Consulte o log antes de repetir a operação.");
                 }
 

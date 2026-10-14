@@ -33,6 +33,12 @@ namespace RevitMcp
         public static ExternalEvent Event;
         public static HttpBridge Bridge;
 
+        // Último diálogo do Revit capturado por OnDialogBoxShowing — permite que
+        // um comando que travou por timeout (CommandHandler.Run) relate a causa
+        // exata em vez de só sugerir "veja se há diálogo aberto".
+        public static string LastDialogMessage;
+        public static DateTime? LastDialogTime;
+
         /// <summary>
         /// Chamado pelo Revit quando o add-in é carregado.
         /// Configura o handler de comandos e inicia o servidor HTTP.
@@ -51,6 +57,18 @@ namespace RevitMcp
 
                 // Captura a UIApplication (só disponível via evento Idling)
                 a.Idling += OnIdling;
+
+                // Rede de segurança: alguns avisos do Revit (ex.: "O sólido
+                // topográfico e o piso se sobrepõem") escapam do
+                // ConfigureAutomaticWarningHandling de uma transação — por
+                // exemplo quando são gerados fora de qualquer transação, ou
+                // por um comando que não configurou o failures preprocessor —
+                // e viram uma caixa de diálogo modal que não tem quem clique
+                // numa automação headless, travando o bridge até o timeout.
+                // Registra e fecha automaticamente só o diálogo de aviso
+                // padrão do Revit (DialogId "TaskDialog_Warning"); qualquer
+                // outro diálogo é só registrado, nunca fechado sozinho.
+                a.DialogBoxShowing += OnDialogBoxShowing;
 
                 // Relatório de alterações anexado às respostas de escrita.
                 a.ControlledApplication.DocumentChanged += ChangeTracker.OnDocumentChanged;
@@ -98,9 +116,34 @@ namespace RevitMcp
         public Result OnShutdown(UIControlledApplication a)
         {
             try { a.Idling -= OnIdling; } catch { }
+            try { a.DialogBoxShowing -= OnDialogBoxShowing; } catch { }
             try { a.ControlledApplication.DocumentChanged -= ChangeTracker.OnDocumentChanged; } catch { }
             try { Bridge?.Stop(); StartupLog("OnShutdown concluído."); } catch { }
             return Result.Succeeded;
+        }
+
+        /// <summary>
+        /// Chamado toda vez que o Revit está prestes a mostrar uma caixa de
+        /// diálogo. Registra o conteúdo (para CommandHandler relatar a causa
+        /// de um timeout) e fecha sozinho apenas o diálogo de aviso padrão do
+        /// Revit, que é a mesma categoria de aviso não destrutivo que
+        /// ConfigureAutomaticWarningHandling já aceita automaticamente dentro
+        /// de uma transação.
+        /// </summary>
+        private void OnDialogBoxShowing(object sender, DialogBoxShowingEventArgs e)
+        {
+            try
+            {
+                string texto = (e as TaskDialogShowingEventArgs)?.Message
+                    ?? (e as MessageBoxShowingEventArgs)?.Message;
+                LastDialogMessage = string.IsNullOrEmpty(texto) ? e.DialogId : $"[{e.DialogId}] {texto}";
+                LastDialogTime = DateTime.Now;
+                StartupLog("Diálogo do Revit: " + LastDialogMessage);
+
+                if (e.DialogId == "TaskDialog_Warning")
+                    e.OverrideResult(1); // mesmo botão (OK/Fechar) que um clique manual confirmaria
+            }
+            catch { }
         }
 
         /// <summary>Registro mínimo de inicialização para diagnóstico sem depender da interface.</summary>

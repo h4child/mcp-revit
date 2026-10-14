@@ -3620,6 +3620,7 @@ namespace RevitMcp
             using (var tx = new Transaction(doc, "MCP: Criar guarda-corpo"))
             {
                 tx.Start();
+                ConfigureAutomaticWarningHandling(tx);
                 var railing = Railing.Create(doc, loop, railingType.Id, level.Id);
                 result = new
                 {
