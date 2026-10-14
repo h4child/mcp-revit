@@ -429,10 +429,21 @@ namespace RevitMcp
         {
             var doc = RequireDoc(uiApp);
             var pi = doc.ProjectInformation;
-            var extras = pi.Parameters.Cast<Parameter>()
-                .Where(p => p.Definition != null && p.HasValue)
-                .GroupBy(p => p.Definition.Name)
-                .ToDictionary(g => g.Key, g => ProParamValue(doc, g.First()));
+            // Importante: NUNCA encadear LINQ (Cast/Where/GroupBy) direto sobre um
+            // ParameterSet (Element.Parameters) — isso já causou uma falha nativa
+            // fatal (access violation) que derrubou o Revit inteiro sem gerar
+            // exceção .NET capturável. Usar foreach simples e try/catch por item.
+            var extras = new Dictionary<string, object>();
+            foreach (Parameter p in pi.Parameters)
+            {
+                if (p?.Definition == null || !p.HasValue) continue;
+                try
+                {
+                    if (!extras.ContainsKey(p.Definition.Name))
+                        extras[p.Definition.Name] = ProParamValue(doc, p);
+                }
+                catch { }
+            }
             return new
             {
                 nome = pi.Name,
@@ -518,9 +529,18 @@ namespace RevitMcp
         {
             if (string.IsNullOrWhiteSpace(name)) return null;
             var alvo = Normalizar(name);
-            return doc.Phases.Cast<Phase>().FirstOrDefault(p => Normalizar(p.Name) == alvo)
-                ?? doc.Phases.Cast<Phase>().FirstOrDefault(p => Normalizar(p.Name).Contains(alvo))
-                ?? throw new ArgumentException($"Fase '{name}' não encontrada. Use list_phases.");
+            // doc.Phases é um PhaseArray (coleção antiga da mesma família de
+            // ParameterSet); encadear LINQ direto sobre ela já se mostrou capaz
+            // de derrubar o Revit em outro caso (ver ParameterSet). Preferir
+            // foreach simples por segurança.
+            Phase exato = null, parcial = null;
+            foreach (Phase p in doc.Phases)
+            {
+                var n = Normalizar(p.Name);
+                if (n == alvo) { exato = p; break; }
+                if (parcial == null && n.Contains(alvo)) parcial = p;
+            }
+            return exato ?? parcial ?? throw new ArgumentException($"Fase '{name}' não encontrada. Use list_phases.");
         }
 
 
