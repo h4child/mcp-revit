@@ -2351,7 +2351,35 @@ namespace RevitMcp
                         room.Name = name;
                         string number = GetS(item, "number");
                         if (!string.IsNullOrEmpty(number)) room.Number = number;
-                        placed.Add(new { id = room.Id.Value, nome = room.Name, numero = room.Number, x_m = x, y_m = y });
+
+                        if (item.TryGetProperty("finishes", out var finishes) && finishes.ValueKind == JsonValueKind.Object)
+                        {
+                            void SetFinish(BuiltInParameter bip, string key)
+                            {
+                                if (finishes.TryGetProperty(key, out var fv) && fv.ValueKind == JsonValueKind.String)
+                                    room.get_Parameter(bip)?.Set(fv.GetString());
+                            }
+                            SetFinish(BuiltInParameter.ROOM_FINISH_FLOOR, "piso");
+                            SetFinish(BuiltInParameter.ROOM_FINISH_WALL, "parede");
+                            SetFinish(BuiltInParameter.ROOM_FINISH_CEILING, "forro");
+                            SetFinish(BuiltInParameter.ROOM_FINISH_BASE, "rodape");
+                        }
+
+                        string upperLimit = GetS(item, "upper_limit");
+                        if (!string.IsNullOrEmpty(upperLimit))
+                        {
+                            var upperLevel = FindLevel(doc, upperLimit);
+                            if (upperLevel != null) room.get_Parameter(BuiltInParameter.ROOM_UPPER_LEVEL)?.Set(upperLevel.Id);
+                        }
+                        double limitOffsetM = GetItemD(item, "limit_offset_m", double.NaN);
+                        if (!double.IsNaN(limitOffsetM))
+                            room.get_Parameter(BuiltInParameter.ROOM_UPPER_OFFSET)?.Set(MToFt(limitOffsetM));
+
+                        placed.Add(new
+                        {
+                            id = room.Id.Value, nome = room.Name, numero = room.Number, x_m = x, y_m = y,
+                            pe_direito_m = Math.Round(FtToM(room.UnboundedHeight), 3)
+                        });
                     }
                     catch (Exception ex) { errors.Add($"{name}: {ex.Message}"); }
                 }

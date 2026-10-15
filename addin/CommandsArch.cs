@@ -78,6 +78,7 @@ namespace RevitMcp
                 // --- Auditoria ---
                 case "audit_project_setup":  return AuditProjectSetup(uiApp);
                 case "audit_hosted_cuts":    return AuditHostedCuts(uiApp, a);
+                case "audit_sections":       return AuditSections(uiApp);
 
                 default:
                     throw new ArgumentException($"Comando desconhecido: {req.cmd}");
@@ -1391,6 +1392,42 @@ namespace RevitMcp
                     ? "Vão existe só no papel (Host preenchido), mas o Revit não registrou o corte na parede. " +
                       "Use change_element_type para trocar o tipo destes IDs para qualquer outro e depois de volta ao original: isso força o recálculo do corte."
                     : null
+            };
+        }
+
+        private static object AuditSections(UIApplication uiApp)
+        {
+            var doc = RequireDoc(uiApp);
+            var sections = new FilteredElementCollector(doc).OfClass(typeof(ViewSection)).Cast<ViewSection>()
+                .Where(v => v.ViewType == ViewType.Section && !v.IsTemplate).ToList();
+            var emPrancha = new FilteredElementCollector(doc).OfClass(typeof(Viewport)).Cast<Viewport>()
+                .Select(vp => vp.ViewId.Value).ToHashSet();
+
+            var itens = sections.Select(v => new
+            {
+                id = v.Id.Value,
+                nome = v.Name,
+                direcao = CardinalFromDirection(v.ViewDirection),
+                em_prancha = emPrancha.Contains(v.Id.Value),
+                escala = v.Scale
+            }).ToList();
+
+            var direcoes = itens.Select(i => i.direcao).Distinct().ToList();
+            var semPrancha = itens.Where(i => !i.em_prancha).Select(i => new { i.id, i.nome }).ToList();
+
+            return new
+            {
+                quantidade = itens.Count,
+                cortes = itens,
+                direcoes_cobertas = direcoes,
+                provavel_falta_de_direcao = itens.Count > 0 && direcoes.Count <= 1,
+                sem_prancha_quantidade = semPrancha.Count,
+                sem_prancha = semPrancha,
+                dica = itens.Count == 0
+                    ? "Nenhum corte de edificação criado ainda. Use create_section_mark (ou create_section_view)."
+                    : (direcoes.Count <= 1
+                        ? "Todos os cortes apontam para direções próximas; a maioria dos projetos precisa de pelo menos um corte transversal e um longitudinal."
+                        : (semPrancha.Count > 0 ? "Há corte(s) ainda fora de prancha. Use place_view_on_sheet." : null))
             };
         }
 
