@@ -136,6 +136,36 @@ async def get_area_report(scheme: Optional[str] = None) -> dict:
     """Quadro de áreas por esquema e nível, com cada área (nome, número, m²) e totais."""
     return await _rpc("get_area_report", **_clean(scheme=scheme))
 
+
+@mcp.tool()
+async def create_ceilings_from_rooms(level: Optional[str] = None, ceiling_type: Optional[str] = None,
+                                     height_offset_m: float = 2.5, boundary: str = "finish",
+                                     room_numbers: Optional[list[str]] = None,
+                                     exclude_numbers: Optional[list[str]] = None,
+                                     exclude_name_contains: Optional[list[str]] = None,
+                                     skip_existing: bool = True, dry_run: bool = False) -> dict:
+    """Cria um forro por ambiente, usando o contorno real de cada Room (não um retângulo).
+
+    Preenche cada ambiente delimitado com um Ceiling que acompanha exatamente a forma
+    do ambiente (inclusive recortes ao redor de pilares, se houver). Use quando o
+    projeto tem ambientes modelados mas nenhum forro ainda.
+
+    level: restringe a um nível (padrão: todos os níveis com ambientes).
+    ceiling_type: nome (parcial) do tipo de forro — ver list_element_types(category="Ceilings").
+        Se omitido, evita o tipo placeholder "Genérico" quando houver outra opção.
+    height_offset_m: altura do forro acima do nível (padrão 2.5m).
+    boundary: finish, center ou core — igual a create_area_boundaries.
+    room_numbers / exclude_numbers: inclui ou exclui ambientes específicos pelo número.
+    exclude_name_contains: pula ambientes cujo nome contenha um destes trechos
+        (ex.: ["Terraço", "Varanda", "Garagem"] para pé-direito duplo ou áreas externas).
+    skip_existing: pula ambientes que já têm um forro no mesmo nível (padrão True).
+    dry_run: só lista o que seria criado, sem alterar o modelo.
+    """
+    return await _rpc("create_ceilings_from_rooms", **_clean(
+        level=level, ceiling_type=ceiling_type, height_offset_m=height_offset_m, boundary=boundary,
+        room_numbers=room_numbers, exclude_numbers=exclude_numbers,
+        exclude_name_contains=exclude_name_contains, skip_existing=skip_existing, dry_run=dry_run))
+
 # --- Organização e documentação ---------------------------------------------
 
 @mcp.tool()

@@ -52,6 +52,7 @@ namespace RevitMcp
                 case "create_area_boundaries": return CreateAreaBoundaries(uiApp, a);
                 case "place_areas":          return PlaceAreas(uiApp, a);
                 case "get_area_report":      return GetAreaReport(uiApp, a);
+                case "create_ceilings_from_rooms": return CreateCeilingsFromRooms(uiApp, a);
 
                 // --- Organização e documentação ---
                 case "create_shaft_opening": return CreateShaftOpening(uiApp, a);
@@ -661,6 +662,163 @@ namespace RevitMcp
                 esquemas,
                 areas_nao_delimitadas = linhas.Count(l => l.area <= 0),
                 dica = linhas.Count == 0 ? "Nenhuma área. Fluxo: create_area_plan → create_area_boundaries → place_areas." : null
+            };
+        }
+
+        /// <summary>
+        /// Cria um forro (Ceiling) por ambiente, usando o contorno real de cada Room
+        /// (igual ao usado em create_area_boundaries source="rooms"), em vez de um
+        /// retângulo aproximado. Preenche a lacuna de "forro em lote" que o projeto
+        /// precisa quando nenhum Ceiling foi modelado ainda.
+        ///
+        /// level               — nome do nível (opcional; todos os níveis com ambientes se omitido)
+        /// ceiling_type        — nome (parcial) do tipo de forro (opcional; evita "Genérico" por padrão)
+        /// height_offset_m     — altura do forro acima do nível (padrão 2.5 m)
+        /// boundary            — finish, center ou core (padrão finish, igual a create_area_boundaries)
+        /// room_numbers        — lista de números de ambiente a incluir (opcional; todos se omitido)
+        /// exclude_numbers     — lista de números de ambiente a pular
+        /// exclude_name_contains — lista de trechos de nome a pular (ex.: ["Terraço","Varanda","Garagem"]
+        ///                         para pé-direito duplo ou áreas externas sem forro)
+        /// skip_existing       — pula ambientes que já têm um Ceiling no mesmo nível (padrão true)
+        /// dry_run             — só lista o que seria criado, sem alterar o modelo
+        /// </summary>
+        private static object CreateCeilingsFromRooms(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            string levelFilter = GetS(args, "level");
+            double heightOffset = GetD(args, "height_offset_m", 2.5);
+            bool skipExisting = !args.TryGetProperty("skip_existing", out var se) || se.ValueKind != JsonValueKind.False;
+            bool dryRun = args.TryGetProperty("dry_run", out var dr) && dr.ValueKind == JsonValueKind.True;
+
+            List<string> ReadStrings(string prop)
+            {
+                var list = new List<string>();
+                if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty(prop, out var arr) && arr.ValueKind == JsonValueKind.Array)
+                    foreach (var it in arr.EnumerateArray())
+                        if (it.ValueKind == JsonValueKind.String) list.Add(it.GetString());
+                return list;
+            }
+            var incluir = ReadStrings("room_numbers").Select(Normalizar).ToHashSet();
+            var excluirNumeros = ReadStrings("exclude_numbers").Select(Normalizar).ToHashSet();
+            var excluirTrechos = ReadStrings("exclude_name_contains").Select(Normalizar).ToList();
+
+            var boundaryOptions = new SpatialElementBoundaryOptions
+            {
+                SpatialElementBoundaryLocation = (GetS(args, "boundary", "finish") ?? "finish").ToLowerInvariant() switch
+                {
+                    "center" => SpatialElementBoundaryLocation.Center,
+                    "core" => SpatialElementBoundaryLocation.CoreBoundary,
+                    _ => SpatialElementBoundaryLocation.Finish
+                }
+            };
+
+            // Tipo de forro: nome (parcial) informado, senão o primeiro tipo que não seja
+            // o placeholder "Genérico" (sem camadas úteis), senão qualquer um disponível.
+            var ceilingTypes = new FilteredElementCollector(doc).OfClass(typeof(CeilingType)).Cast<CeilingType>().ToList();
+            if (ceilingTypes.Count == 0) throw new Exception("Nenhum tipo de forro disponível no projeto.");
+            CeilingType ceilingType;
+            string ceilingTypeName = GetS(args, "ceiling_type");
+            if (!string.IsNullOrEmpty(ceilingTypeName))
+            {
+                var alvo = Normalizar(ceilingTypeName);
+                ceilingType = ceilingTypes.FirstOrDefault(t => Normalizar(t.Name) == alvo)
+                    ?? ceilingTypes.FirstOrDefault(t => Normalizar(t.Name).Contains(alvo))
+                    ?? throw new Exception($"Tipo de forro '{ceilingTypeName}' não encontrado. Use list_element_types(category=\"Ceilings\").");
+            }
+            else
+            {
+                ceilingType = ceilingTypes.FirstOrDefault(t => !Normalizar(t.Name).Contains("generico"))
+                    ?? ceilingTypes.First();
+            }
+
+            // Níveis-alvo e Ceilings já existentes em cada um (para skip_existing).
+            var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .Where(l => levelFilter == null || Normalizar(l.Name) == Normalizar(levelFilter))
+                .ToDictionary(l => l.Id.Value, l => l);
+            var existingByLevel = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Ceilings)
+                .WhereElementIsNotElementType().OfType<Ceiling>()
+                .GroupBy(c => c.LevelId.Value)
+                .ToDictionary(g => g.Key, g => g.Select(c => c.get_BoundingBox(null)).Where(b => b != null).ToList());
+
+            bool PontoDentroDeForroExistente(long levelId, XYZ p)
+            {
+                if (!existingByLevel.TryGetValue(levelId, out var boxes)) return false;
+                foreach (var b in boxes)
+                    if (p.X >= b.Min.X && p.X <= b.Max.X && p.Y >= b.Min.Y && p.Y <= b.Max.Y) return true;
+                return false;
+            }
+
+            var criados = new List<object>();
+            var pulados = new List<object>();
+            var erros = new List<string>();
+
+            void Processar(Action commitAction)
+            {
+                foreach (var room in new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms).WhereElementIsNotElementType().OfType<Room>())
+                {
+                    string numero = room.Number ?? "";
+                    string nome = ArchParamText(room, BuiltInParameter.ROOM_NAME) ?? "";
+                    if (!levels.TryGetValue(room.LevelId.Value, out var level)) continue;
+                    if (room.Area <= 0 || room.Location == null)
+                    { pulados.Add(new { numero, nome, motivo = "nao_delimitado" }); continue; }
+                    if (incluir.Count > 0 && !incluir.Contains(Normalizar(numero)))
+                    { pulados.Add(new { numero, nome, motivo = "fora_de_room_numbers" }); continue; }
+                    if (excluirNumeros.Contains(Normalizar(numero)))
+                    { pulados.Add(new { numero, nome, motivo = "em_exclude_numbers" }); continue; }
+                    if (excluirTrechos.Any(t => Normalizar(nome).Contains(t)))
+                    { pulados.Add(new { numero, nome, motivo = "em_exclude_name_contains" }); continue; }
+                    var lp = room.Location as LocationPoint;
+                    if (skipExisting && lp != null && PontoDentroDeForroExistente(level.Id.Value, lp.Point))
+                    { pulados.Add(new { numero, nome, motivo = "ja_tem_forro" }); continue; }
+
+                    try
+                    {
+                        var loops = new List<CurveLoop>();
+                        foreach (var loop in room.GetBoundarySegments(boundaryOptions))
+                        {
+                            var curves = loop.Select(seg => seg.GetCurve()).Where(c => c != null).ToList();
+                            if (curves.Count >= 3) loops.Add(CurveLoop.Create(curves));
+                        }
+                        if (loops.Count == 0) { pulados.Add(new { numero, nome, motivo = "sem_contorno" }); continue; }
+
+                        double areaM2 = Math.Round(SqFtToM2(room.Area), 3);
+                        if (dryRun)
+                        {
+                            criados.Add(new { numero, nome, nivel = level.Name, area_m2 = areaM2 });
+                            continue;
+                        }
+
+                        var ceiling = Ceiling.Create(doc, loops, ceilingType.Id, level.Id);
+                        ceiling.get_Parameter(BuiltInParameter.CEILING_HEIGHTABOVELEVEL_PARAM)?.Set(MToFt(heightOffset));
+                        criados.Add(new { id = ceiling.Id.Value, numero, nome, nivel = level.Name, area_m2 = areaM2 });
+                    }
+                    catch (Exception ex) { erros.Add($"{numero} {nome}: {ex.Message}"); }
+                }
+            }
+
+            if (dryRun)
+            {
+                Processar(null);
+            }
+            else
+            {
+                using (var tx = new Transaction(doc, "MCP: Criar forros por ambiente"))
+                {
+                    tx.Start();
+                    ConfigureAutomaticWarningHandling(tx);
+                    Processar(null);
+                    tx.Commit();
+                }
+            }
+            return new
+            {
+                dry_run = dryRun,
+                tipo_forro = ceilingType.Name,
+                altura_m = heightOffset,
+                criados = criados.Count,
+                detalhes = criados,
+                pulados,
+                erros
             };
         }
 

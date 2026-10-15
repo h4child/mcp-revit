@@ -1220,7 +1220,8 @@ namespace RevitMcp
             "set_element_workset", "tag_elements", "override_elements_in_view", "set_category_visibility",
             "duplicate_type", "change_element_type", "create_layered_type", "create_shaft_opening",
             "pin_elements", "create_area_boundaries", "place_areas", "flip_instances",
-            "create_floor_opening", "join_geometry", "attach_walls", "renumber_elements"
+            "create_floor_opening", "join_geometry", "attach_walls", "renumber_elements",
+            "create_ceilings_from_rooms"
         };
 
         /// <summary>Valida e explica um lote antes de ele tocar no modelo.</summary>

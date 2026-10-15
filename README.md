@@ -29,7 +29,7 @@ Servidor Python (FastMCP) ── token local ──► Add-in .NET no Revit
 |---|---|
 | Dados do projeto | `get_project_info`, `set_project_info`, `get_project_location`, `list_phases`, `set_element_phase`, `create_workset`, `set_element_workset`, `list_project_parameters`, `create_project_parameter` |
 | Tipos | `list_element_types` (dimensões, camadas, uso), `duplicate_type`, `change_element_type`, `create_layered_type` (parede/piso/forro/cobertura por camadas) |
-| Ambientes e áreas | `get_room_report` (áreas, acabamentos, portas, problemas), `list_area_schemes`, `create_area_plan`, `create_area_boundaries`, `place_areas`, `get_area_report` (quadro de áreas) |
+| Ambientes e áreas | `get_room_report` (áreas, acabamentos, portas, problemas), `list_area_schemes`, `create_area_plan`, `create_area_boundaries`, `place_areas`, `get_area_report` (quadro de áreas), `create_ceilings_from_rooms` (forro por ambiente, no contorno real) |
 | Organização | `create_shaft_opening`, `dimension_grids`, `pin_elements`, `set_selection`, `get_element_relationships`, `list_view_templates`, `create_view_template`, `list_design_options` |
 | Modelagem | `flip_instances`, `create_floor_opening`, `join_geometry`, `attach_walls`, `set_true_north` |
 | Numeração | `renumber_elements` (portas, janelas, ambientes; por posição ou pelo ambiente, com simulação) |

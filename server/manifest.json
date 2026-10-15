@@ -760,6 +760,10 @@
       "description": "Quadro de áreas por esquema e nível, com cada área (nome, número, m²) e totais."
     },
     {
+      "name": "create_ceilings_from_rooms",
+      "description": "Cria um forro por ambiente, usando o contorno real de cada Room (não um retângulo)."
+    },
+    {
       "name": "create_shaft_opening",
       "description": "Cria shaft (abertura vertical) pelo contorno points [{x_m,y_m}] entre dois níveis, cortando lajes, forros e coberturas (poços de elevador, dutos, escadas)."
     },
