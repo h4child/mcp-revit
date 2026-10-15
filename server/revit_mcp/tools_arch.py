@@ -2,6 +2,7 @@
 
 from typing import Optional
 
+from . import normas
 from .core import _clean, _rpc, mcp
 
 
@@ -66,6 +67,32 @@ async def get_room_report(level: Optional[str] = None) -> dict:
     portas e janelas por ambiente, totais por nível e problemas (não posicionado,
     não delimitado, sem porta) com a correção sugerida."""
     return await _rpc("get_room_report", **_clean(level=level))
+
+
+@mcp.tool()
+async def audit_code_compliance(municipio: str = "paracatu-mg", level: Optional[str] = None,
+                                aberturas_extras: Optional[dict] = None) -> dict:
+    """Confere o modelo com o Código de Obras do município (somente leitura).
+
+    Por ambiente (classificado pelo nome): área e dimensão mínimas, vão de
+    iluminação/ventilação (fração da área do piso), janelas fixas, acesso e
+    pé-direito. Gerais: banheiro principal, altura e largura de portas, escadas
+    (espelho, piso, Blondel, patamar) e depósito de lixo. Cada item traz status
+    (ok/falha/atencao), valor exigido, valor do projeto e artigo da lei.
+
+    municipio: slug cadastrado (ver resource revit://normas).
+    aberturas_extras: {ambiente: m²} para panos de vidro e portas envidraçadas que
+        iluminam o ambiente mas não são janelas no Revit, ex.: {"T09": 15.6}.
+    Regras e artigos: revit://normas/municipios/{municipio}.
+    """
+    regras = normas.carregar_regras(municipio)
+    relatorio = await _rpc("get_room_report", **_clean(level=level))
+    janelas = await _rpc("list_windows")
+    portas = await _rpc("find_elements", **_clean(category="Doors", level=level,
+                                                  return_parameters=normas.DOOR_PARAMS, limit=2000))
+    escadas = await _rpc("find_elements", **_clean(category="Stairs", level=level,
+                                                   return_parameters=normas.STAIR_PARAMS, limit=200))
+    return normas.avaliar(regras, relatorio, janelas, portas, escadas, aberturas_extras)
 
 
 @mcp.tool()

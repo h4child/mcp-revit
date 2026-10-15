@@ -6,12 +6,13 @@ Módulos:
     tools_editing manipulação, anotação, componentes, pranchas e exportação
     tools_pro     dados do projeto, vistas, documentação, coordenação, estrutura e MEP
     tools_arch    tipos, ambientes/áreas, organização, modelagem e produção
+    normas        base normativa (Códigos de Obras, guias) como resources MCP
     annotations   classificação leitura/escrita/destrutivo das ferramentas
 
-Importar este pacote registra todas as ferramentas em ``core.mcp``.
+Importar este pacote registra todas as ferramentas e resources em ``core.mcp``.
 """
 
-from . import core, tools_arch, tools_editing, tools_model, tools_pro  # noqa: F401
+from . import core, normas, tools_arch, tools_editing, tools_model, tools_pro  # noqa: F401
 from .annotations import annotate_tools, classify_tool  # noqa: F401
 from .core import mcp  # noqa: F401
 

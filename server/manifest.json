@@ -736,6 +736,10 @@
       "description": "Relatório de ambientes: área, perímetro, volume, pé-direito, acabamentos, portas e janelas por ambiente, totais por nível e problemas (não posicionado, não..."
     },
     {
+      "name": "audit_code_compliance",
+      "description": "Confere o modelo com o Código de Obras do município: áreas, vãos de iluminação, portas, escadas e pé-direito, com o artigo de cada regra."
+    },
+    {
       "name": "list_area_schemes",
       "description": "Lista esquemas de área (ex.: Área bruta, Área locável) e as plantas de área de cada um."
     },

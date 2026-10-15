@@ -33,7 +33,7 @@ Servidor Python (FastMCP) ── token local ──► Add-in .NET no Revit
 | Organização | `create_shaft_opening`, `dimension_grids`, `pin_elements`, `set_selection`, `get_element_relationships`, `list_view_templates`, `create_view_template`, `list_design_options` |
 | Modelagem | `flip_instances`, `create_floor_opening`, `join_geometry`, `attach_walls`, `set_true_north` |
 | Numeração | `renumber_elements` (portas, janelas, ambientes; por posição ou pelo ambiente, com simulação) |
-| Auditoria | `audit_project_setup` (checklist do projeto arquitetônico com nota e ferramenta de correção por item), além de `validate_document`, `analyze_bim_quality`, `audit_documentation` |
+| Auditoria | `audit_project_setup` (checklist do projeto arquitetônico com nota e ferramenta de correção por item), `audit_code_compliance` (Código de Obras do município, ver abaixo), além de `validate_document`, `analyze_bim_quality`, `audit_documentation` |
 | Consulta e edição em massa | `find_elements` (filtros por categoria, nível, tipo e parâmetros), `set_parameters_bulk` (instância ou tipo, numa transação) |
 | Vistas | `duplicate_view`, `set_view_properties`, `create_elevations`, `create_3d_view`, `create_drafting_view`, `create_view_filter`/`apply_view_filter`, `create_rule_filter` (filtro com regras de parâmetro), `set_category_override`, `set_element_override`, `reset_overrides`, `override_elements_in_view`, `set_category_visibility`, `tag_elements` |
 | Documentação | `list_sheets`, `list_titleblocks`, `create_sheets`, `list_revisions`, `create_revision`, `add_revision_to_sheets`, `list_schedules`, `create_schedule_advanced`, `get_schedule_data` |
@@ -52,6 +52,26 @@ Exemplos de pedidos à IA:
 - "Verifique interferências entre vigas e dutos e crie uma vista 3D isolando cada conflito."
 - "Crie o parâmetro 'Acabamento de piso' em Ambientes e uma tabela com Número, Nome, Área e esse parâmetro."
 - "Faça um quantitativo de paredes, pisos e esquadrias por tipo para o orçamento."
+
+## Base normativa (resources MCP)
+
+O servidor publica uma base de conhecimento versionada em `server/revit_mcp/knowledge/`:
+
+| Resource | Conteúdo |
+|---|---|
+| `revit://normas` | Índice: municípios e guias disponíveis |
+| `revit://normas/municipios/paracatu-mg` | Guia do Código de Obras de Paracatu (LC 176/2025 com a LC 201/2025), com artigos |
+| `revit://normas/municipios/paracatu-mg/regras` | As mesmas regras em JSON, usadas pela verificação automática |
+| `revit://normas/guias/esquadrias-e-paredes` | Boas práticas: tipologia, quantidade, tamanho e posição de portas, janelas e paredes |
+| `revit://normas/guias/normas-abnt` | O que cada NBR cobre e quando consultar (sem reproduzir o texto das normas) |
+
+`audit_code_compliance(municipio="paracatu-mg")` classifica os ambientes pelo nome e confere:
+- por ambiente: área e dimensão mínimas, vão de iluminação e ventilação, janelas fixas, acesso e pé-direito;
+- no modelo todo: banheiro principal, altura e largura das portas, escada (espelho, piso, Blondel, patamar) e depósito de lixo.
+
+Cada item traz o valor exigido, o valor do projeto e o artigo. Panos de vidro e portas envidraçadas que iluminam um ambiente entram em `aberturas_extras`.
+
+Para cadastrar outro município, crie `knowledge/municipios/<cidade-uf>.json` (mesma estrutura do de Paracatu) e o guia `<cidade-uf>.md`. Os testes validam a estrutura automaticamente. Os valores transcritos não substituem o Diário Oficial nem a revisão do responsável técnico.
 
 ## Formato das respostas
 

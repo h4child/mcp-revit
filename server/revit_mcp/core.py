@@ -131,7 +131,12 @@ def _client(timeout: float) -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=timeout, trust_env=False)
 
 # --- Servidor MCP ---
-mcp = FastMCP("revit-mcp")
+mcp = FastMCP("revit-mcp", instructions=(
+    "Ferramentas para modelar e documentar projetos no Revit 2025 (medidas em metros). "
+    "Antes de definir ambientes, portas, janelas, paredes ou escadas, consulte a base normativa "
+    "em revit://normas (Código de Obras do município e guias de esquadrias/paredes) e confira o "
+    "modelo com audit_code_compliance. Os valores são referência: a revisão final é do responsável técnico."
+))
 
 
 # =============================================================================

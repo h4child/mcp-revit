@@ -1,0 +1,210 @@
+{
+  "municipio": "Paracatu",
+  "uf": "MG",
+  "slug": "paracatu-mg",
+  "fontes": [
+    {
+      "lei": "Lei Complementar nº 176, de 06/01/2025 — Código de Obras do Município de Paracatu",
+      "url": "https://sapl.paracatu.mg.leg.br/norma/9242"
+    },
+    {
+      "lei": "Lei Complementar nº 201, de 29/12/2025 — altera a LC 176/2025 (arts. 20, 23, 26, 94, 102, 103, 104, 106, 107 e Anexos II, III, V e VII)",
+      "url": "https://sapl.paracatu.mg.leg.br/norma/9710"
+    }
+  ],
+  "texto_consolidado_em": "2026-10-14",
+  "aviso": "Valores transcritos do texto consolidado publicado no Leis.org, que não substitui o Diário Oficial. Parâmetros urbanísticos (taxa de ocupação, recuos, permeabilidade) estão no Plano Diretor e na Lei de Parcelamento, Uso e Ocupação do Solo, não neste Código. Confirme na Consulta Prévia (Art. 16 a 18) e com responsável técnico habilitado.",
+
+  "classificacao": {
+    "artigo": "Art. 92",
+    "permanencia_prolongada": "preparo e consumo de alimentos, repouso, estar e lazer, reunião, trabalho, ensino, recreação, esportes ou exercício físico, tratamento de saúde",
+    "permanencia_transitoria": "circulações, banheiros, lavabos, vestiários, depósitos, caixas de escada e compartimentos de instalações especiais de acesso restrito",
+    "conflito": "Em caso de conflito prevalece a finalidade lógica do compartimento mais restritivo (Art. 92 §3º). A destinação considera o nome no projeto e a finalidade lógica pela disposição em planta (Art. 93)."
+  },
+
+  "compartimentos": {
+    "area_externa": {
+      "rotulo": "Área externa (varanda, terraço, deck, piscina)",
+      "palavras": ["varanda", "terraco", "sacada", "deck", "piscina", "quadra", "jardim", "pergolado", "quintal"],
+      "verificar": false,
+      "nota": "Varanda: área aberta com peitoril ou parapeito de até 1,20 m (Anexo I — Glossário). Desnível ≥ 1,00 m exige guarda-corpo (Art. 89)."
+    },
+    "garagem": {
+      "rotulo": "Garagem / estacionamento",
+      "palavras": ["garagem", "vaga", "estacionamento", "abrigo"],
+      "pe_direito_min_m": 2.20,
+      "artigo": "Art. 81 §4º",
+      "nota": "Pé-direito mínimo de 2,20 m até o primeiro elemento construtivo. Circulação de veículos em áreas de uso comum: largura e vão de acesso mínimos de 2,50 m, declividade máxima de 20% para automóveis (Anexo V)."
+    },
+    "instalacao_sanitaria": {
+      "rotulo": "Instalação sanitária (banheiro / lavabo)",
+      "palavras": ["banho", "banheiro", "lavabo", "wc", "sanitario", "toalete", "vestiario"],
+      "transitoria": true,
+      "area_min_m2": 1.50,
+      "dimensao_min_m": 1.20,
+      "iluminacao_fracao": 0.125,
+      "iluminacao_texto": "1/8",
+      "vao_acesso_min_m": 0.60,
+      "ventilacao_artificial_permitida": true,
+      "artigo": "Anexo III (redação da LC 201/2025); Art. 103 p.u. I",
+      "principal": {
+        "area_min_m2": 2.40,
+        "area_min_lavatorio_externo_m2": 1.80,
+        "vao_acesso_min_m": 0.70,
+        "iluminacao_texto": "1/8 (1/6 quando iluminada pela varanda ou pela área de serviço)",
+        "nota": "Ao menos uma instalação sanitária por unidade deve atender aos parâmetros da principal, com vão de acesso de pelo menos 0,70 m."
+      },
+      "nota": "Secundária: 1,50 m², dimensão mínima 1,20 m, vão 1/8, porta 0,60 m. Lavabos e banheiros podem ter iluminação e ventilação artificiais (Art. 103 p.u. I, redação da LC 201/2025)."
+    },
+    "closet_deposito": {
+      "rotulo": "Closet / depósito / despensa",
+      "palavras": ["closet", "deposito", "despensa", "rouparia", "casa de maquinas", "dml", "adega", "lixo", "lixeira"],
+      "transitoria": true,
+      "ventilacao_artificial_permitida": true,
+      "artigo": "Art. 92 §2º; Art. 103 p.u. I",
+      "nota": "Permanência transitória. Iluminação e ventilação artificiais permitidas para depósitos e closets."
+    },
+    "area_servico": {
+      "rotulo": "Área de serviço / lavanderia",
+      "palavras": ["servico", "lavanderia"],
+      "transitoria": true,
+      "dimensao_min_m": 1.00,
+      "vao_acesso_min_m": 0.80,
+      "artigo": "Anexo III (redação da LC 201/2025)",
+      "nota": "Dimensão mínima 1,00 m; vão de acesso 0,80 m. Pode ser conjugada com a cozinha. O Anexo não fixa fração de vão para a área de serviço."
+    },
+    "cozinha": {
+      "rotulo": "Cozinha (manuseio de alimentos)",
+      "palavras": ["cozinha", "copa"],
+      "area_min_m2": 4.00,
+      "dimensao_min_m": 1.50,
+      "iluminacao_fracao": 0.125,
+      "iluminacao_texto": "1/8 (1/6 quando iluminada pela área de serviço ou varanda)",
+      "vao_acesso_min_m": 0.70,
+      "artigo": "Anexo III (redação da LC 201/2025)",
+      "nota": "Um dos vãos de acesso externo deve ter pelo menos 0,80 m."
+    },
+    "circulacao": {
+      "rotulo": "Circulação / hall / corredor",
+      "palavras": ["hall", "circulacao", "corredor", "galeria", "escada", "mezanino", "passagem", "vestibulo"],
+      "transitoria": true,
+      "largura_min_m": 1.00,
+      "dimensao_min_m": 1.00,
+      "ventilacao_artificial_permitida": true,
+      "artigo": "Art. 85 I; Art. 103 p.u. I",
+      "nota": "Uso privativo de residência unifamiliar: largura mínima de 1,00 m. Hall de escada e corredores podem ter iluminação e ventilação artificiais."
+    },
+    "dormitorio": {
+      "rotulo": "Dormitório",
+      "palavras": ["quarto", "suite", "dormitorio"],
+      "area_min_m2": 7.00,
+      "dimensao_min_m": 2.00,
+      "iluminacao_fracao": 0.16667,
+      "iluminacao_texto": "1/6 (1/5 quando iluminado através de varanda)",
+      "vao_acesso_min_m": 0.70,
+      "artigo": "Anexo III (redação da LC 201/2025)"
+    },
+    "estar": {
+      "rotulo": "Estar / permanência prolongada (sala, escritório, academia)",
+      "palavras": ["sala", "living", "estar", "jantar", "home", "escritorio", "office", "gym", "academia", "tv", "biblioteca", "brinquedoteca", "estudo", "cinema"],
+      "area_min_m2": 8.00,
+      "dimensao_min_m": 2.00,
+      "iluminacao_fracao": 0.16667,
+      "iluminacao_texto": "1/6 (1/5 quando iluminado através de varanda)",
+      "vao_acesso_min_m": 0.70,
+      "artigo": "Anexo III (redação da LC 201/2025); Art. 92 §1º",
+      "nota": "Um dos vãos de acesso externo deve ter pelo menos 0,80 m. Escritório, academia e home theater são permanência prolongada (trabalho, exercício físico, lazer — Art. 92 §1º); aplica-se o parâmetro de estar."
+    }
+  },
+
+  "ordem_classificacao": ["area_externa", "garagem", "instalacao_sanitaria", "closet_deposito", "area_servico", "cozinha", "circulacao", "dormitorio", "estar"],
+
+  "gerais": {
+    "pe_direito_min_m": {"valor": 2.80, "artigo": "Art. 80", "texto": "Pé-direito mínimo de compartimentos de habitações: 2,80 m."},
+    "pe_direito_teto_inclinado_min_m": {"valor": 2.10, "artigo": "Art. 95 I", "texto": "Teto inclinado: pé-direito medido no ponto mais baixo, mínimo 2,10 m."},
+    "vao_acesso_altura_min_m": {"valor": 2.10, "artigo": "Art. 95 II", "texto": "Vãos de acesso com altura mínima de 2,10 m."},
+    "circulacao_privativa_largura_min_m": {"valor": 1.00, "artigo": "Art. 85 I"},
+    "circulacao_coletiva_largura_min_m": {"valor": 1.20, "artigo": "Art. 85 II"},
+    "escada": {
+      "artigo": "Art. 87",
+      "espelho_min_m": 0.16,
+      "espelho_max_m": 0.18,
+      "piso_min_m": 0.28,
+      "piso_max_m": 0.32,
+      "blondel_min_m": 0.63,
+      "blondel_max_m": 0.65,
+      "patamar_altura_max_m": 3.20,
+      "texto": "Espelho 16–18 cm, piso 28–32 cm, 63 cm < 2h + p < 65 cm. Patamar obrigatório quando houver mudança de direção ou altura a vencer superior a 3,20 m, com profundidade mínima igual à largura da escada (§1º). Escada caracol: NBR 9077 e IT do CBMMG (§2º)."
+    },
+    "guarda_corpo": {
+      "artigo": "Art. 89",
+      "desnivel_obrigatorio_m": 1.00,
+      "altura_min_m": 1.10,
+      "altura_min_escada_interna_unifamiliar_m": 0.92,
+      "vao_max_m": 0.15,
+      "texto": "Obrigatório com desnível ≥ 1,00 m. Altura mínima 1,10 m; em residência unifamiliar pode ser 0,92 m nas escadas internas. Vão livre máximo 15 cm entre elementos (residência unifamiliar é exceção, mas a NBR 9077 continua aplicável)."
+    },
+    "rampa": {
+      "artigo": "Art. 86",
+      "inclinacao_referencia": 0.0833,
+      "inclinacao_reforma_max": 0.125,
+      "texto": "Ao menos uma rampa de acessibilidade com inclinação de referência 8,33% (até 12,5% em reformas sem alternativa). O desnível entre o piso de entrada e a rua, no acesso, deve ser vencido por rampa (§2º)."
+    },
+    "balanco": {
+      "artigo": "Arts. 82 e 83",
+      "altura_min_sobre_passeio_m": 3.00,
+      "projecao_max_fracao_recuo": 0.3333,
+      "texto": "Balanços a pelo menos 3,00 m sobre o passeio; projeção horizontal de no máximo 1/3 do recuo da face onde se situa."
+    },
+    "lixeira": {
+      "artigo": "Art. 102 (redação da LC 201/2025)",
+      "area_construida_gatilho_m2": 200,
+      "capacidade_min_m3_por_unidade": 0.1,
+      "altura_max_m": 1.50,
+      "area_min_m2": 1.00,
+      "texto": "Edifícios residenciais com área construída acima de 200 m² devem ter depósito de lixo com capacidade mínima de 0,1 m³ por unidade, acesso direto à via pública, altura máxima de 1,50 m e área mínima de 1,00 m²."
+    },
+    "aberturas_entre_si": {
+      "artigo": "Art. 104 p.u. (redação da LC 201/2025)",
+      "afastamento_mesma_unidade_m": 1.50,
+      "texto": "Aberturas voltadas para vizinhos seguem a Lei de Parcelamento, Ocupação e Uso do Solo. Entre aberturas da mesma unidade autônoma: afastamento mínimo de 1,50 m."
+    },
+    "fosso": {
+      "artigo": "Arts. 105 a 107 e Anexo VII (redação da LC 201/2025)",
+      "prolongada": {"area_min_m2": 7.00, "diametro_min_m": 2.00},
+      "transitoria": {"area_min_m2": 2.25, "diametro_min_m": 1.50},
+      "ate_2_pavimentos_diametro_min_m": 1.50,
+      "dispensa_unifamiliar": true,
+      "texto": "Fossos não podem ser cobertos (Art. 105 §1º). Em residências unifamiliares os parâmetros mínimos podem ser dispensados (Art. 107 §2º).",
+      "anexo_vii_prolongada": [[6, 9, 2.60], [9, 12, 3.30], [12, 15, 4.00], [15, 20, 4.90], [20, 25, 5.80], [25, 30, 6.70], [30, 35, 7.60], [35, 40, 8.50], [40, 45, 9.40], [50, 55, 10.30], [55, 60, 11.20]],
+      "anexo_vii_transitoria": [[6, 9, 1.85], [9, 12, 2.15], [12, 15, 2.45], [15, 20, 2.95], [20, 25, 3.45], [25, 30, 3.95], [30, 35, 4.45], [35, 40, 4.95], [40, 45, 5.45], [45, 50, 5.95], [50, 55, 6.45], [55, 60, 6.95]]
+    },
+    "acustica": {"artigo": "Art. 78 §2º", "texto": "Todo o território municipal é enquadrado na Classe de Ruído III da NBR 15575-4 para fins de isolamento acústico."},
+    "normas_obrigatorias": {"artigo": "Art. 25", "texto": "Os projetos devem atender às NBR 16636, 15575, 9077 e 9050 e demais normas aplicáveis."},
+    "coberturas": {"artigo": "Art. 72", "texto": "Águas pluviais não podem ser despejadas nos vizinhos nem no logradouro; devem ser canalizadas até sarjeta, rede pluvial ou caixa de captação."},
+    "divisas": {"artigo": "Art. 73", "texto": "Estruturas e paredes aparentes nas divisas: face externa com acabamento não inferior a reboco paulista."},
+    "incendio": {"artigo": "Art. 75 e Art. 26 IX", "texto": "Medidas de segurança contra incêndio exigidas acima de 750 m² e em outros casos; protocolo no INFOSCIP do CBMMG."}
+  },
+
+  "apresentacao_projeto": {
+    "artigo": "Art. 20",
+    "escalas": {
+      "implantacao": "1:200 (mínima), cotada",
+      "cobertura": "1:100 (mínima), cotada",
+      "planta_baixa": "1:100 (mínima), cada pavimento, incluindo terraços",
+      "cortes": "1:50 (mínima), transversal e longitudinal, passando pelas áreas molhadas e escadas, com perfil do terreno",
+      "fachadas": "1:50 (mínima), todas as fachadas voltadas para logradouros, com gradil/muro de fechamento e nivelamento do logradouro"
+    },
+    "itens": [
+      "Planta de situação com vias limítrofes (II)",
+      "Áreas permeáveis conforme o Plano Diretor (XI)",
+      "Local de plantio de árvores na calçada (XII) e nota de arborização, se houver plantio (IX)",
+      "Detalhe da entrada de veículos compatível com meio-fio, sem degraus na calçada (XIV)",
+      "Especificações da obra (X)",
+      "Reformas: manter em preto, demolir em hachura 45°, novo em branco (XVI)",
+      "Selo conforme modelo da Prefeitura (§3º)"
+    ],
+    "documentos_art_26": "Requerimento; 4 cópias impressas + PDF + arquivo editável (preferencialmente BIM, ou .dwg/.tiff); ART/RRT; taxas; documento do imóvel; documentos pessoais; BIC; protocolo INFOSCIP (CBMMG).",
+    "prazos": "Consulta Prévia obrigatória (Art. 18); análise em até 30 dias (Art. 33); alvará válido por 2 anos (Art. 29 §2º); início da obra em até 180 dias (Art. 35); aviso de início com 24 h (Art. 36)."
+  }
+}
