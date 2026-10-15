@@ -3865,6 +3865,7 @@ namespace RevitMcp
             string matName = GetS(args, "material");
             if (string.IsNullOrEmpty(matName))
                 throw new ArgumentException("Argumento obrigatório ausente: material");
+            string side = (GetS(args, "side", "all") ?? "all").ToLowerInvariant();
 
             var elem = doc.GetElement(new ElementId(id));
             if (elem == null)
@@ -3885,6 +3886,47 @@ namespace RevitMcp
                     $"Material '{matName}' não encontrado. " +
                     "Use list_materials para ver os materiais disponíveis.");
 
+            // side: "all" (padrão) pinta toda face sólida, igual sempre funcionou.
+            // Em paredes, "exterior"/"interior" pintam só o lado pedido, usando
+            // Wall.Orientation (normal do lado exterior) para separar as faces —
+            // o Revit já suporta materiais diferentes por face sem dividir a
+            // parede em dois elementos (Document.Paint por Face).
+            Func<Face, bool> faceFilter = null;
+            if (side != "all")
+            {
+                if (elem is Wall wall)
+                {
+                    XYZ orientation;
+                    try { orientation = wall.Orientation; } catch { orientation = null; }
+                    if (orientation != null)
+                    {
+                        bool wantExterior = side == "exterior" || side == "externa" || side == "fora";
+                        bool wantInterior = side == "interior" || side == "interna" || side == "dentro";
+                        if (wantExterior || wantInterior)
+                            faceFilter = f =>
+                            {
+                                var n = f.ComputeNormal(new UV(0.5, 0.5));
+                                double dot = n.DotProduct(orientation);
+                                if (Math.Abs(dot) < 0.5) return false; // topo/base/topes — fora do filtro
+                                return wantExterior ? dot > 0 : dot < 0;
+                            };
+                    }
+                }
+                else if (elem is HostObject) // Floor, RoofBase, Ceiling: topo/base pela normal Z
+                {
+                    bool wantTop = side == "top" || side == "topo" || side == "cima" || side == "superior";
+                    bool wantBottom = side == "bottom" || side == "base" || side == "baixo" || side == "inferior";
+                    if (wantTop || wantBottom)
+                        faceFilter = f =>
+                        {
+                            var n = f.ComputeNormal(new UV(0.5, 0.5));
+                            if (Math.Abs(n.Z) < 0.5) return false; // laterais — fora do filtro
+                            return wantTop ? n.Z > 0 : n.Z < 0;
+                        };
+                }
+                // Outras categorias: side é ignorado (não há noção de interior/exterior).
+            }
+
             // Calcula geometria com referências (necessário para Paint)
             var opt = new Options
             {
@@ -3899,29 +3941,33 @@ namespace RevitMcp
             {
                 tx.Start();
                 foreach (var gObj in geom)
-                    faces += PaintFaces(doc, elem.Id, gObj, mat.Id);
+                    faces += PaintFaces(doc, elem.Id, gObj, mat.Id, faceFilter);
                 tx.Commit();
             }
 
             if (faces == 0)
-                throw new Exception(
-                    "Nenhuma face foi pintada. O elemento pode não ter geometria sólida " +
-                    "acessível (tente aplicar a paredes, pisos, telhados ou móveis).");
+                throw new Exception(side == "all"
+                    ? "Nenhuma face foi pintada. O elemento pode não ter geometria sólida " +
+                      "acessível (tente aplicar a paredes, pisos, telhados ou móveis)."
+                    : $"Nenhuma face do lado '{side}' foi encontrada (elemento sem Wall.Orientation " +
+                      "reconhecível, ou side não se aplica a esta categoria — use side=\"all\").");
 
             return new
             {
                 id = elem.Id.Value,
                 material = mat.Name,
+                lado = side,
                 faces_pintadas = faces
             };
         }
 
         /// <summary>
-        /// Pinta recursivamente todas as faces sólidas de um GeometryObject.
-        /// Trata sólidos diretos e GeometryInstance (famílias aninhadas).
-        /// Retorna o número de faces efetivamente pintadas.
+        /// Pinta recursivamente as faces sólidas de um GeometryObject que passem no
+        /// faceFilter (null = todas). Trata sólidos diretos e GeometryInstance
+        /// (famílias aninhadas). Retorna o número de faces efetivamente pintadas.
         /// </summary>
-        private static int PaintFaces(Document doc, ElementId elemId, GeometryObject gObj, ElementId matId)
+        private static int PaintFaces(Document doc, ElementId elemId, GeometryObject gObj, ElementId matId,
+            Func<Face, bool> faceFilter = null)
         {
             int count = 0;
 
@@ -3929,6 +3975,7 @@ namespace RevitMcp
             {
                 foreach (Face face in solid.Faces)
                 {
+                    if (faceFilter != null && !faceFilter(face)) continue;
                     try { doc.Paint(elemId, face, matId); count++; }
                     catch { /* face não pintável — ignora */ }
                 }
@@ -3936,7 +3983,7 @@ namespace RevitMcp
             else if (gObj is GeometryInstance gi)
             {
                 foreach (var sub in gi.GetInstanceGeometry())
-                    count += PaintFaces(doc, elemId, sub, matId);
+                    count += PaintFaces(doc, elemId, sub, matId, faceFilter);
             }
 
             return count;

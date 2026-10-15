@@ -154,7 +154,7 @@ async def list_materials(filtro: Optional[str] = None) -> list:
 
 
 @mcp.tool()
-async def set_material(id: int, material: str) -> dict:
+async def set_material(id: int, material: str, side: str = "all") -> dict:
     """
     Aplica um material (acabamento) a um elemento existente, pintando suas faces.
     Funciona em paredes, pisos, telhados, forros e móveis.
@@ -162,11 +162,17 @@ async def set_material(id: int, material: str) -> dict:
     id       — ID do elemento (obtido em list_walls, create_floor, etc)
     material — nome do material (busca parcial), ex: "Madeira", "Cerâmica",
                "Concreto", "Vidro", "Tijolo"
+    side     — qual face pintar, sem dividir o elemento em dois (o Revit suporta
+               material por face nativamente): "all" (padrão, pinta tudo — mesmo
+               comportamento de antes), "exterior"/"interior" em paredes,
+               "top"/"bottom" em pisos, forros e coberturas. Use para dar um
+               acabamento à vista interna de uma parede sem pintar a fachada
+               externa (ou o ambiente do outro lado) junto.
 
     Muda a aparência em vistas sombreadas/realistas sem afetar outros elementos.
-    Exemplo: set_material(id=298787, material="Madeira")
+    Exemplo: set_material(id=298787, material="Azulejo cerâmico", side="interior")
     """
-    return await _rpc("set_material", id=id, material=material)
+    return await _rpc("set_material", **_clean(id=id, material=material, side=side))
 
 
 @mcp.tool()
