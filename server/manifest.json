@@ -824,6 +824,10 @@
       "description": "Exporta vistas/pranchas como imagens (PNG ou JPG) em lote para apresentações, retornando os arquivos gerados."
     },
     {
+      "name": "audit_hosted_cuts",
+      "description": "Verifica se cada porta/janela hospedada realmente abre um vão na parede."
+    },
+    {
       "name": "audit_project_setup",
       "description": "Checklist do projeto arquitetônico com nota de 0 a 100: informações do projeto, arquivo salvo, norte, níveis/plantas/eixos fixados, paredes com tipos..."
     }

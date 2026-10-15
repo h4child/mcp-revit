@@ -77,6 +77,7 @@ namespace RevitMcp
 
                 // --- Auditoria ---
                 case "audit_project_setup":  return AuditProjectSetup(uiApp);
+                case "audit_hosted_cuts":    return AuditHostedCuts(uiApp, a);
 
                 default:
                     throw new ArgumentException($"Comando desconhecido: {req.cmd}");
@@ -1326,6 +1327,71 @@ namespace RevitMcp
             var arquivos = System.IO.Directory.GetFiles(folder).Where(f => !before.Contains(f))
                 .Select(f => new { arquivo = f, tamanho_kb = new System.IO.FileInfo(f).Length / 1024 }).ToList();
             return new { pasta = folder, largura_px = pixels, vistas = views.Select(v => v.Name).ToList(), arquivos };
+        }
+
+        /// <summary>
+        /// Verifica se cada porta/janela hospedada realmente abre um vão na parede
+        /// (Wall.FindInserts reconhecendo o FamilyInstance como insert), em vez de
+        /// só ter a referência de Host preenchida. Um Host válido não garante que o
+        /// corte foi aplicado — isso já causou janelas com a parede "passando por
+        /// cima" depois que o tipo foi redimensionado (ver ResolveWindowSize).
+        /// Somente leitura; use change_element_type (troca e volta) para forçar o
+        /// Revit a recalcular o corte dos elementos listados em "quebradas".
+        /// </summary>
+        private static object AuditHostedCuts(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            string catArg = GetS(args, "category", "Windows") ?? "Windows";
+            var alvo = Normalizar(catArg);
+            BuiltInCategory bic = (alvo == Normalizar("Doors") || alvo == Normalizar("Portas"))
+                ? BuiltInCategory.OST_Doors : BuiltInCategory.OST_Windows;
+            string categoriaNome = bic == BuiltInCategory.OST_Doors ? "Portas" : "Janelas";
+
+            var instancias = new FilteredElementCollector(doc).OfCategory(bic)
+                .WhereElementIsNotElementType().OfType<FamilyInstance>().ToList();
+
+            // Uma mesma parede hospeda várias aberturas; FindInserts por parede é
+            // calculado uma vez e reaproveitado.
+            var insertsPorParede = new Dictionary<long, HashSet<long>>();
+            HashSet<long> InsertsDe(Wall w)
+            {
+                if (!insertsPorParede.TryGetValue(w.Id.Value, out var set))
+                {
+                    set = new HashSet<long>();
+                    try { foreach (var id in w.FindInserts(false, false, true, false)) set.Add(id.Value); } catch { }
+                    insertsPorParede[w.Id.Value] = set;
+                }
+                return set;
+            }
+
+            int ok = 0, semParede = 0;
+            var quebradas = new List<object>();
+            foreach (var inst in instancias)
+            {
+                var wall = inst.Host as Wall;
+                if (wall == null) { semParede++; continue; }
+                if (InsertsDe(wall).Contains(inst.Id.Value)) { ok++; continue; }
+                quebradas.Add(new
+                {
+                    id = inst.Id.Value,
+                    tipo = inst.Symbol?.Name,
+                    parede_id = wall.Id.Value,
+                    nivel = (doc.GetElement(inst.LevelId) as Level)?.Name
+                });
+            }
+            return new
+            {
+                categoria = categoriaNome,
+                total = instancias.Count,
+                cortando_corretamente = ok,
+                sem_hospedeiro_de_parede = semParede,
+                quebradas_quantidade = quebradas.Count,
+                quebradas,
+                dica = quebradas.Count > 0
+                    ? "Vão existe só no papel (Host preenchido), mas o Revit não registrou o corte na parede. " +
+                      "Use change_element_type para trocar o tipo destes IDs para qualquer outro e depois de volta ao original: isso força o recálculo do corte."
+                    : null
+            };
         }
 
         // =====================================================================

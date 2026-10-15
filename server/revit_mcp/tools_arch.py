@@ -294,6 +294,26 @@ async def export_images(view_ids: Optional[list[int]] = None, folder: Optional[s
 # --- Auditoria -------------------------------------------------------------------
 
 @mcp.tool()
+async def audit_hosted_cuts(category: str = "Windows") -> dict:
+    """Verifica se cada porta/janela hospedada realmente abre um vão na parede.
+
+    Um Host preenchido (parede_id em list_windows) não garante que o Revit
+    aplicou o corte — já aconteceu de uma janela redimensionada (tipo "- MCP
+    LxA") ficar com a parede "passando por cima", mesmo com dimensões e
+    hospedeiro corretos nos parâmetros. Esta ferramenta confere via
+    Wall.FindInserts (reconhecimento real do corte pelo Revit), não apenas o
+    parâmetro de Host.
+
+    category: "Windows" (padrão) ou "Doors".
+    Retorna cortando_corretamente, sem_hospedeiro_de_parede e quebradas (id,
+    tipo, parede_id, nível) para cada uma que precisa de correção. Para
+    corrigir uma quebrada: change_element_type para qualquer outro tipo e
+    depois de volta ao tipo original — isso força o Revit a recalcular o corte.
+    """
+    return await _rpc("audit_hosted_cuts", category=category)
+
+
+@mcp.tool()
 async def audit_project_setup() -> dict:
     """Checklist do projeto arquitetônico com nota de 0 a 100: informações do projeto,
     arquivo salvo, norte, níveis/plantas/eixos fixados, paredes com tipos definidos,

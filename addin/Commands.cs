@@ -1902,6 +1902,17 @@ namespace RevitMcp
             result = pending.Count == 0
                 ? "dimensões aplicadas em tipo MCP dedicado"
                 : "tipo MCP criado; parâmetro sem edição: " + string.Join(", ", pending);
+
+            // Essencial: o símbolo duplicado normalmente já nasce "ativo" (herda o
+            // estado do símbolo-base), então o Activate()+Regenerate() condicional
+            // em CreateHostedInstance (que só roda quando !IsActive) nunca executa
+            // aqui. Sem este Regenerate, o Revit cria a instância a partir de um
+            // vão (void) que ainda reflete o tamanho ANTERIOR à mudança de Width/
+            // Height — a parede fica com um corte do tamanho errado (ou nenhum
+            // corte visível), mesmo a instância reportando a largura/altura corretas
+            // nos parâmetros. Reproduzido ao vivo: várias janelas "- MCP WxH" com
+            // a parede aparentemente sólida atravessando o vão.
+            doc.Regenerate();
             return sized;
         }
 
