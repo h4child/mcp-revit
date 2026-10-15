@@ -88,6 +88,10 @@
       "description": "Aplica material/acabamento a um elemento."
     },
     {
+      "name": "remove_paint",
+      "description": "Remove a pintura (Document.RemovePaint) de faces de um elemento, sem precisar de Ctrl+Z."
+    },
+    {
       "name": "create_material",
       "description": "Cria ou atualiza material com cor, transparência e textura PNG/JPG/BMP opcional."
     },

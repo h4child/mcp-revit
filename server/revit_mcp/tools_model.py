@@ -154,25 +154,46 @@ async def list_materials(filtro: Optional[str] = None) -> list:
 
 
 @mcp.tool()
-async def set_material(id: int, material: str, side: str = "all") -> dict:
+async def set_material(id: int, material: Optional[str] = None, side: str = "all",
+                       room_id: Optional[int] = None, remove: bool = False) -> dict:
     """
     Aplica um material (acabamento) a um elemento existente, pintando suas faces.
     Funciona em paredes, pisos, telhados, forros e móveis.
 
     id       — ID do elemento (obtido em list_walls, create_floor, etc)
     material — nome do material (busca parcial), ex: "Madeira", "Cerâmica",
-               "Concreto", "Vidro", "Tijolo"
+               "Concreto", "Vidro", "Tijolo". Obrigatório, exceto com remove=True.
     side     — qual face pintar, sem dividir o elemento em dois (o Revit suporta
                material por face nativamente): "all" (padrão, pinta tudo — mesmo
                comportamento de antes), "exterior"/"interior" em paredes,
                "top"/"bottom" em pisos, forros e coberturas. Use para dar um
                acabamento à vista interna de uma parede sem pintar a fachada
-               externa (ou o ambiente do outro lado) junto.
+               externa junto.
+    room_id  — alternativa a side: pinta só a face que abre para esse ambiente
+               (id de get_room_report/list_rooms). Necessário numa parede interna
+               compartilhada por dois ambientes, onde "interior"/"exterior" não
+               dizem de qual lado é cada um — ex.: azulejo só no lado do banheiro,
+               sem pintar o quarto vizinho do outro lado da mesma parede.
+    remove   — True limpa a pintura das faces filtradas por side/room_id em vez de
+               aplicar material (ignora o argumento material). Útil para desfazer
+               um acabamento aplicado no lado errado sem precisar de Ctrl+Z no Revit.
 
     Muda a aparência em vistas sombreadas/realistas sem afetar outros elementos.
-    Exemplo: set_material(id=298787, material="Azulejo cerâmico", side="interior")
+    Exemplo: set_material(id=298787, material="Azulejo cerâmico", room_id=299066)
     """
-    return await _rpc("set_material", **_clean(id=id, material=material, side=side))
+    return await _rpc("set_material", **_clean(id=id, material=material, side=side, room_id=room_id, remove=remove or None))
+
+
+@mcp.tool()
+async def remove_paint(id: int, side: str = "all", room_id: Optional[int] = None) -> dict:
+    """Remove a pintura (Document.RemovePaint) de faces de um elemento, sem precisar de Ctrl+Z.
+
+    Usa os mesmos filtros de set_material: side ("all", "exterior"/"interior" em
+    paredes, "top"/"bottom" em pisos/forros/coberturas) ou room_id (face que abre
+    para aquele ambiente). Útil para desfazer um acabamento aplicado no lado errado.
+    Exemplo: remove_paint(id=298787, room_id=299067)  # tira o azulejo que vazou pro quarto
+    """
+    return await _rpc("remove_paint", **_clean(id=id, side=side, room_id=room_id))
 
 
 @mcp.tool()

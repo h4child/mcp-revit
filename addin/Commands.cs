@@ -216,6 +216,7 @@ namespace RevitMcp
                     // --- Materiais ---
                     case "list_materials":  return ListMaterials(uiApp, req.args);
                     case "set_material":    return SetMaterial(uiApp, req.args);
+                    case "remove_paint":    return RemovePaint(uiApp, req.args);
                     case "create_material": return CreateMaterial(uiApp, req.args);
                     case "create_rectangular_prism": return CreateRectangularPrism(uiApp, req.args);
 
@@ -3862,14 +3863,50 @@ namespace RevitMcp
         {
             var doc = RequireDoc(uiApp);
             long id = (long)GetDReq(args, "id");
+            bool removeMode = args.ValueKind == JsonValueKind.Object
+                && args.TryGetProperty("remove", out var removeEl)
+                && removeEl.ValueKind == JsonValueKind.True;
             string matName = GetS(args, "material");
-            if (string.IsNullOrEmpty(matName))
+            if (!removeMode && string.IsNullOrEmpty(matName))
                 throw new ArgumentException("Argumento obrigatório ausente: material");
             string side = (GetS(args, "side", "all") ?? "all").ToLowerInvariant();
+            double roomIdRaw = GetD(args, "room_id", double.NaN);
 
             var elem = doc.GetElement(new ElementId(id));
             if (elem == null)
                 throw new Exception($"Elemento com ID {id} não encontrado.");
+
+            // remove=true: ignora material e limpa a pintura das faces filtradas por
+            // side/room_id (Document.RemovePaint) — desfaz um acabamento no lado
+            // errado sem precisar de Ctrl+Z no Revit.
+            if (removeMode)
+            {
+                var removeFilter = BuildFaceFilter(doc, elem, side, roomIdRaw);
+                var ropt = new Options { ComputeReferences = true, DetailLevel = ViewDetailLevel.Fine };
+                var rgeom = elem.get_Geometry(ropt) ?? throw new Exception("Elemento não possui geometria.");
+                int RemoveRecursive(GeometryObject gObj)
+                {
+                    int n = 0;
+                    if (gObj is Solid rsolid && rsolid.Faces.Size > 0)
+                        foreach (Face face in rsolid.Faces)
+                        {
+                            if (removeFilter != null && !removeFilter(face)) continue;
+                            try { if (doc.IsPainted(elem.Id, face)) { doc.RemovePaint(elem.Id, face); n++; } }
+                            catch { }
+                        }
+                    else if (gObj is GeometryInstance rgi)
+                        foreach (var sub in rgi.GetInstanceGeometry()) n += RemoveRecursive(sub);
+                    return n;
+                }
+                int removedFaces = 0;
+                using (var rtx = new Transaction(doc, "MCP: Remover pintura"))
+                {
+                    rtx.Start();
+                    foreach (var gObj in rgeom) removedFaces += RemoveRecursive(gObj);
+                    rtx.Commit();
+                }
+                return new { id = elem.Id.Value, removido = true, lado = double.IsNaN(roomIdRaw) ? side : $"room {roomIdRaw}", faces_despintadas = removedFaces };
+            }
 
             // Busca material: exato primeiro, depois parcial (case-insensitive)
             var materiais = new FilteredElementCollector(doc)
@@ -3886,11 +3923,54 @@ namespace RevitMcp
                     $"Material '{matName}' não encontrado. " +
                     "Use list_materials para ver os materiais disponíveis.");
 
-            // side: "all" (padrão) pinta toda face sólida, igual sempre funcionou.
-            // Em paredes, "exterior"/"interior" pintam só o lado pedido, usando
-            // Wall.Orientation (normal do lado exterior) para separar as faces —
-            // o Revit já suporta materiais diferentes por face sem dividir a
-            // parede em dois elementos (Document.Paint por Face).
+            Func<Face, bool> faceFilter = BuildFaceFilter(doc, elem, side, roomIdRaw);
+
+            // Calcula geometria com referências (necessário para Paint)
+            var opt = new Options
+            {
+                ComputeReferences = true,
+                DetailLevel = ViewDetailLevel.Fine
+            };
+            var geom = elem.get_Geometry(opt)
+                ?? throw new Exception("Elemento não possui geometria para aplicar material.");
+
+            int faces = 0;
+            using (var tx = new Transaction(doc, "MCP: Aplicar material"))
+            {
+                tx.Start();
+                foreach (var gObj in geom)
+                    faces += PaintFaces(doc, elem.Id, gObj, mat.Id, faceFilter);
+                tx.Commit();
+            }
+
+            if (faces == 0)
+                throw new Exception(!double.IsNaN(roomIdRaw)
+                    ? $"Nenhuma face abre para o ambiente {roomIdRaw}. Confira se o elemento realmente " +
+                      "delimita esse Room (get_element_relationships) e se o ambiente está posicionado."
+                    : side == "all"
+                        ? "Nenhuma face foi pintada. O elemento pode não ter geometria sólida " +
+                          "acessível (tente aplicar a paredes, pisos, telhados ou móveis)."
+                        : $"Nenhuma face do lado '{side}' foi encontrada (elemento sem Wall.Orientation " +
+                          "reconhecível, ou side não se aplica a esta categoria — use side=\"all\").");
+
+            return new
+            {
+                id = elem.Id.Value,
+                material = mat.Name,
+                lado = double.IsNaN(roomIdRaw) ? side : $"room {roomIdRaw}",
+                faces_pintadas = faces
+            };
+        }
+
+        /// <summary>
+        /// Monta o filtro de face usado por set_material e remove_paint: null = todas
+        /// as faces (comportamento de sempre); side="exterior"/"interior" em paredes
+        /// (Wall.Orientation) ou "top"/"bottom" em pisos/forros/coberturas (normal Z);
+        /// room_id tem prioridade sobre side e identifica a face que abre para aquele
+        /// Room mesmo numa parede interna compartilhada por dois ambientes.
+        /// </summary>
+        private static Func<Face, bool> BuildFaceFilter(Document doc, Element elem, string side, double roomIdRaw)
+        {
             Func<Face, bool> faceFilter = null;
             if (side != "all")
             {
@@ -3927,38 +4007,65 @@ namespace RevitMcp
                 // Outras categorias: side é ignorado (não há noção de interior/exterior).
             }
 
-            // Calcula geometria com referências (necessário para Paint)
-            var opt = new Options
+            if (!double.IsNaN(roomIdRaw))
             {
-                ComputeReferences = true,
-                DetailLevel = ViewDetailLevel.Fine
-            };
-            var geom = elem.get_Geometry(opt)
-                ?? throw new Exception("Elemento não possui geometria para aplicar material.");
+                var room = doc.GetElement(new ElementId((long)roomIdRaw)) as Room;
+                if (room == null)
+                    throw new Exception($"Ambiente {roomIdRaw} não encontrado ou não é um Room.");
+                faceFilter = f =>
+                {
+                    var c = f.Evaluate(new UV(0.5, 0.5));
+                    var n = f.ComputeNormal(new UV(0.5, 0.5));
+                    var probe = c + n * MToFt(0.15);
+                    try { return room.IsPointInRoom(probe); } catch { return false; }
+                };
+            }
+            return faceFilter;
+        }
 
-            int faces = 0;
-            using (var tx = new Transaction(doc, "MCP: Aplicar material"))
+        /// <summary>
+        /// Remove pintura (Document.RemovePaint) das faces de um elemento, com o
+        /// mesmo filtro de side/room_id do set_material. Útil para desfazer um
+        /// acabamento aplicado no lado errado sem precisar de Ctrl+Z no Revit.
+        /// </summary>
+        private static object RemovePaint(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            long id = (long)GetDReq(args, "id");
+            string side = (GetS(args, "side", "all") ?? "all").ToLowerInvariant();
+            double roomIdRaw = GetD(args, "room_id", double.NaN);
+
+            var elem = doc.GetElement(new ElementId(id))
+                ?? throw new Exception($"Elemento com ID {id} não encontrado.");
+            var faceFilter = BuildFaceFilter(doc, elem, side, roomIdRaw);
+
+            var opt = new Options { ComputeReferences = true, DetailLevel = ViewDetailLevel.Fine };
+            var geom = elem.get_Geometry(opt)
+                ?? throw new Exception("Elemento não possui geometria.");
+
+            int RemoveRecursive(GeometryObject gObj)
             {
-                tx.Start();
-                foreach (var gObj in geom)
-                    faces += PaintFaces(doc, elem.Id, gObj, mat.Id, faceFilter);
-                tx.Commit();
+                int n = 0;
+                if (gObj is Solid solid && solid.Faces.Size > 0)
+                    foreach (Face face in solid.Faces)
+                    {
+                        if (faceFilter != null && !faceFilter(face)) continue;
+                        try { if (doc.IsPainted(elem.Id, face)) { doc.RemovePaint(elem.Id, face); n++; } }
+                        catch { }
+                    }
+                else if (gObj is GeometryInstance gi)
+                    foreach (var sub in gi.GetInstanceGeometry()) n += RemoveRecursive(sub);
+                return n;
             }
 
-            if (faces == 0)
-                throw new Exception(side == "all"
-                    ? "Nenhuma face foi pintada. O elemento pode não ter geometria sólida " +
-                      "acessível (tente aplicar a paredes, pisos, telhados ou móveis)."
-                    : $"Nenhuma face do lado '{side}' foi encontrada (elemento sem Wall.Orientation " +
-                      "reconhecível, ou side não se aplica a esta categoria — use side=\"all\").");
-
-            return new
+            int faces = 0;
+            using (var tx = new Transaction(doc, "MCP: Remover pintura"))
             {
-                id = elem.Id.Value,
-                material = mat.Name,
-                lado = side,
-                faces_pintadas = faces
-            };
+                tx.Start();
+                foreach (var gObj in geom) faces += RemoveRecursive(gObj);
+                tx.Commit();
+            }
+            return new { id = elem.Id.Value, lado = double.IsNaN(roomIdRaw) ? side : $"room {roomIdRaw}", faces_despintadas = faces };
         }
 
         /// <summary>
