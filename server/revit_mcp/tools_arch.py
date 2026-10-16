@@ -321,3 +321,58 @@ async def audit_project_setup() -> dict:
     acabamentos), quadro de áreas, numeração de portas/janelas, cortes, elevações,
     pranchas, tabelas e revisões. Cada item pendente indica a ferramenta que corrige."""
     return await _rpc("audit_project_setup")
+
+
+# --- Níveis, eixos e coordenadas --------------------------------------------
+#
+# ⚠️ Ferramentas novas desta rodada (lacunas do catálogo de 1010 ações).
+# Implementadas sem acesso a uma instância real do Revit nesta sessão — ver
+# docs/NOVAS_ACOES_IMPLEMENTADAS.md antes de usar em produção.
+
+@mcp.tool()
+async def rename_level(new_name: str, level_id: Optional[int] = None, level: Optional[str] = None) -> dict:
+    """Renomeia um nível, identificado por level_id ou pelo nome atual (level). Informe um dos dois."""
+    return await _rpc("rename_level", new_name=new_name, **_clean(level_id=level_id, level=level))
+
+
+@mcp.tool()
+async def set_level_elevation(level_id: Optional[int] = None, level: Optional[str] = None,
+                              elevation_m: Optional[float] = None, offset_m: Optional[float] = None) -> dict:
+    """Altera a elevação de um nível (identificado por level_id ou level).
+
+    Use elevation_m para um valor absoluto, ou offset_m para um deslocamento
+    relativo ao valor atual. Informe exatamente um dos dois.
+    """
+    return await _rpc("set_level_elevation", **_clean(
+        level_id=level_id, level=level, elevation_m=elevation_m, offset_m=offset_m))
+
+
+@mcp.tool()
+async def create_reference_plane(x1_m: float, y1_m: float, x2_m: float, y2_m: float,
+                                  name: Optional[str] = None, view_id: Optional[int] = None) -> dict:
+    """Cria um plano de referência entre dois pontos, visível na vista indicada (padrão: vista ativa).
+
+    Útil como guia de alinhamento/trava de modelagem, ou como referência para
+    cotas e planos de trabalho em famílias e no projeto.
+    """
+    return await _rpc("create_reference_plane", x1_m=x1_m, y1_m=y1_m, x2_m=x2_m, y2_m=y2_m,
+                      **_clean(name=name, view_id=view_id))
+
+
+@mcp.tool()
+async def set_project_base_point(x_m: Optional[float] = None, y_m: Optional[float] = None,
+                                  z_m: Optional[float] = None, target: str = "project") -> dict:
+    """Move o Ponto Base do Projeto (padrão) ou o Ponto de Levantamento (target="survey").
+
+    Coordenadas em metros, relativas à origem interna do modelo. Omita um
+    eixo para não alterá-lo. Veja get_project_location para consultar os
+    valores atuais antes de mover.
+    """
+    return await _rpc("set_project_base_point", target=target, **_clean(x_m=x_m, y_m=y_m, z_m=z_m))
+
+
+@mcp.tool()
+async def audit_levels_grids() -> dict:
+    """Audita níveis e eixos do projeto: nomes duplicados, elevações duplicadas
+    entre níveis e eixos sem nome. Somente leitura."""
+    return await _rpc("audit_levels_grids")

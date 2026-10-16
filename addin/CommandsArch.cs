@@ -80,7 +80,8 @@ namespace RevitMcp
                 case "audit_hosted_cuts":    return AuditHostedCuts(uiApp, a);
 
                 default:
-                    throw new ArgumentException($"Comando desconhecido: {req.cmd}");
+                    // Lacunas de cobertura do catálogo de ações (CommandsExtra.cs)
+                    return ExecutarComandoExtra(uiApp, req);
             }
         }
 

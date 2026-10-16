@@ -438,3 +438,97 @@ async def create_room_separators(lines: list[dict], level: Optional[str] = None)
     """Cria linhas separadoras de ambiente (lines=[{x1_m,y1_m,x2_m,y2_m}]) para dividir
     ambientes sem paredes, como sala/cozinha integradas."""
     return await _rpc("create_room_separators", **_clean(lines=lines, level=level))
+
+
+# --- Parâmetros, links, consultas espaciais, unidades e governança ---------
+#
+# ⚠️ Ferramentas novas desta rodada (lacunas do catálogo de 1010 ações).
+# Implementadas sem acesso a uma instância real do Revit nesta sessão — ver
+# docs/NOVAS_ACOES_IMPLEMENTADAS.md antes de usar em produção.
+
+@mcp.tool()
+async def read_parameter_by_guid(element_id: int, guid: str) -> dict:
+    """Lê um parâmetro compartilhado de um elemento pelo GUID (estável entre
+    projetos e famílias, mesmo quando o nome do parâmetro muda)."""
+    return await _rpc("read_parameter_by_guid", element_id=element_id, guid=guid)
+
+
+@mcp.tool()
+async def get_link_info(link_type_id: int) -> dict:
+    """Consulta caminho, status de carregamento e transformação (posição/rotação
+    em torno de Z) de um vínculo Revit. Aceita o ID do tipo ou da instância (list_links)."""
+    return await _rpc("get_link_info", link_type_id=link_type_id)
+
+
+@mcp.tool()
+async def get_bounding_box(element_id: int, view_id: Optional[int] = None) -> dict:
+    """Consulta a caixa delimitadora (bounding box) de um elemento: mínimo, máximo,
+    centro e dimensões em metros. Com view_id, usa a caixa específica daquela vista."""
+    return await _rpc("get_bounding_box", element_id=element_id, **_clean(view_id=view_id))
+
+
+@mcp.tool()
+async def get_elements_near_point(x_m: float, y_m: float, z_m: float = 0, radius_m: float = 1.0,
+                                  categories: Optional[list[str]] = None, limit: int = 100) -> dict:
+    """Lista elementos cuja caixa delimitadora intersecta uma caixa de busca cúbica
+    ao redor de um ponto, ordenados pela distância do centro ao ponto."""
+    return await _rpc("get_elements_near_point", x_m=x_m, y_m=y_m, z_m=z_m, radius_m=radius_m,
+                      **_clean(categories=categories, limit=limit))
+
+
+@mcp.tool()
+async def get_elements_in_box(x_min_m: float, y_min_m: float, z_min_m: float,
+                              x_max_m: float, y_max_m: float, z_max_m: float,
+                              categories: Optional[list[str]] = None, limit: int = 200) -> dict:
+    """Lista elementos cuja caixa delimitadora intersecta uma caixa 3D definida
+    por mínimos e máximos, em coordenadas do modelo (metros)."""
+    return await _rpc("get_elements_in_box", x_min_m=x_min_m, y_min_m=y_min_m, z_min_m=z_min_m,
+                      x_max_m=x_max_m, y_max_m=y_max_m, z_max_m=z_max_m, **_clean(categories=categories, limit=limit))
+
+
+@mcp.tool()
+async def get_project_units() -> dict:
+    """Consulta as unidades de exibição do projeto: comprimento, área, volume e ângulo
+    (unidade, símbolo e precisão de cada uma)."""
+    return await _rpc("get_project_units")
+
+
+@mcp.tool()
+async def set_project_units(length: Optional[str] = None, area: Optional[str] = None,
+                            volume: Optional[str] = None, angle: Optional[str] = None,
+                            accuracy: Optional[dict] = None) -> dict:
+    """Define as unidades de exibição do projeto.
+
+    length/area/volume/angle aceitam nomes como "Meters", "Millimeters",
+    "Centimeters", "Feet", "FeetFractionalInches" (comprimento);
+    "SquareMeters", "SquareFeet" (área); "CubicMeters", "CubicFeet" (volume);
+    "Degrees", "Radians" (ângulo) — em português ou inglês. accuracy define a
+    precisão de cada grandeza, ex.: {"length": 0.001, "area": 0.01}. Informe
+    ao menos uma unidade ou accuracy.
+    """
+    return await _rpc("set_project_units", **_clean(length=length, area=area, volume=volume,
+                      angle=angle, accuracy=accuracy))
+
+
+@mcp.tool()
+async def validate_naming(scope: Optional[list[str]] = None, pattern: Optional[str] = None,
+                          forbidden_chars: Optional[str] = None, max_length: Optional[int] = None) -> dict:
+    """Valida nomes de vistas, pranchas, famílias, tipos, materiais, filtros,
+    templates e worksets contra um padrão e/ou regras de higiene. Somente leitura.
+
+    scope: subconjunto de ["views","sheets","families","types","materials",
+    "filters","templates","worksets"] (padrão: todos). pattern: regex (.NET)
+    que cada nome deve casar; nomes que não casam são reportados.
+    forbidden_chars: ex.: "#%&*{}\\:<>?/|\"'~". max_length: tamanho máximo do nome.
+    """
+    return await _rpc("validate_naming", **_clean(
+        scope=scope, pattern=pattern, forbidden_chars=forbidden_chars, max_length=max_length))
+
+
+@mcp.tool()
+async def get_model_inventory() -> dict:
+    """Inventário completo do projeto: arquivo, caminho, worksharing, contagem de
+    elementos por categoria, níveis, vistas, pranchas, famílias, materiais,
+    worksets e vínculos. Somente leitura — útil como snapshot de metadados
+    para diagnóstico e comparação entre versões do modelo."""
+    return await _rpc("get_model_inventory")

@@ -531,3 +531,98 @@ async def set_line_style(category: str, weight: int = 3) -> dict:
 async def import_cad(path: str) -> dict:
     """Importa arquivo CAD (DWG/DXF) na vista ativa."""
     return await _rpc("import_cad", path=path)
+
+
+# =============================================================================
+# ONDA 8 — GEOMETRIA 2D DE DETALHE, LINHA DE MODELO E PADRÕES GRÁFICOS
+# =============================================================================
+#
+# ⚠️ Ferramentas novas desta rodada (lacunas do catálogo de 1010 ações).
+# Implementadas sem acesso a uma instância real do Revit nesta sessão — ver
+# docs/NOVAS_ACOES_IMPLEMENTADAS.md antes de usar em produção.
+
+@mcp.tool()
+async def create_detail_arc(center_x_m: float, center_y_m: float, radius_m: float,
+                            start_angle_deg: float = 0, end_angle_deg: float = 180) -> dict:
+    """Cria arco de detalhe (2D) na vista ativa, por centro, raio e ângulos
+    em graus (sentido anti-horário a partir do eixo X)."""
+    return await _rpc("create_detail_arc", center_x_m=center_x_m, center_y_m=center_y_m,
+                      radius_m=radius_m, start_angle_deg=start_angle_deg, end_angle_deg=end_angle_deg)
+
+
+@mcp.tool()
+async def create_detail_circle(center_x_m: float, center_y_m: float, radius_m: float) -> dict:
+    """Cria círculo de detalhe (2D) completo na vista ativa, por centro e raio."""
+    return await _rpc("create_detail_circle", center_x_m=center_x_m, center_y_m=center_y_m, radius_m=radius_m)
+
+
+@mcp.tool()
+async def create_detail_ellipse(center_x_m: float, center_y_m: float, radius_x_m: float,
+                                radius_y_m: float, rotation_deg: float = 0) -> dict:
+    """Cria elipse de detalhe (2D) completa na vista ativa, por centro e semieixos."""
+    return await _rpc("create_detail_ellipse", center_x_m=center_x_m, center_y_m=center_y_m,
+                      radius_x_m=radius_x_m, radius_y_m=radius_y_m, rotation_deg=rotation_deg)
+
+
+@mcp.tool()
+async def create_detail_polygon(center_x_m: float, center_y_m: float, radius_m: float,
+                                sides: int = 6, rotation_deg: float = 0) -> dict:
+    """Cria polígono regular (3 a 24 lados) como linhas de detalhe fechadas na vista ativa.
+    radius_m é o raio do círculo circunscrito (centro a cada vértice)."""
+    return await _rpc("create_detail_polygon", center_x_m=center_x_m, center_y_m=center_y_m,
+                      radius_m=radius_m, sides=sides, rotation_deg=rotation_deg)
+
+
+@mcp.tool()
+async def create_model_line(x1_m: float, y1_m: float, x2_m: float, y2_m: float,
+                            z1_m: float = 0, z2_m: float = 0) -> dict:
+    """Cria linha de modelo (geometria 3D real, não anotação) entre dois pontos.
+
+    Diferente de create_detail_line/create_detail_lines (2D, só aparecem na vista
+    onde foram criadas): a linha de modelo existe no espaço 3D do projeto e
+    aparece em qualquer vista que a corte ou projete. Um plano de trabalho
+    vertical contendo a linha é escolhido automaticamente.
+    """
+    return await _rpc("create_model_line", x1_m=x1_m, y1_m=y1_m, x2_m=x2_m, y2_m=y2_m, z1_m=z1_m, z2_m=z2_m)
+
+
+@mcp.tool()
+async def create_masking_region(x1_m: float, y1_m: float, x2_m: float, y2_m: float) -> dict:
+    """Cria região mascarada (oculta linhas atrás dela) num retângulo da vista ativa.
+
+    Diferente de create_filled_region (hachura visível): usa ou cria um tipo
+    de região preenchida marcado como máscara (sem padrão gráfico aparente).
+    """
+    return await _rpc("create_masking_region", x1_m=x1_m, y1_m=y1_m, x2_m=x2_m, y2_m=y2_m)
+
+
+@mcp.tool()
+async def ungroup_elements(group_id: int) -> dict:
+    """Desagrupa uma instância de grupo de modelo (por ID da instância), liberando os
+    elementos membros para edição individual. Veja create_group, list_groups, place_group."""
+    return await _rpc("ungroup_elements", group_id=group_id)
+
+
+@mcp.tool()
+async def copy_parameters(source_id: int, target_ids: list[int], parameters: Optional[list[str]] = None) -> dict:
+    """Copia valores de parâmetro de um elemento de origem para um ou mais elementos de destino.
+
+    parameters: nomes específicos a copiar (padrão: todos os parâmetros de
+    instância graváveis e com valor na origem). Parâmetros que não existem no
+    destino, ou com tipo de armazenamento diferente, são reportados em 'erros'
+    sem interromper a cópia dos demais.
+    """
+    return await _rpc("copy_parameters", source_id=source_id, target_ids=target_ids, **_clean(parameters=parameters))
+
+
+@mcp.tool()
+async def list_line_styles() -> dict:
+    """Lista os estilos de linha (subcategorias de 'Linhas') com peso de projeção e cor."""
+    return await _rpc("list_line_styles")
+
+
+@mcp.tool()
+async def list_fill_patterns() -> dict:
+    """Lista os padrões de preenchimento (hachuras) do documento, com destino
+    (desenho ou modelo) e se é o preenchimento sólido."""
+    return await _rpc("list_fill_patterns")
