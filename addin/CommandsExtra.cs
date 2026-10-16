@@ -301,8 +301,15 @@ namespace RevitMcp
             }
             else
             {
+                // IfcGUID e Número são excluídos do modo "copiar todos": são identificadores
+                // que devem ser únicos por elemento (duplicar o IfcGUID quebra a integridade de
+                // uma exportação IFC; duplicar o Número de ambiente/porta/etc. dispara o aviso
+                // do Revit "elementos têm valores 'Número' duplicados"). Ainda podem ser
+                // copiados se pedidos explicitamente por nome em 'parameters'.
+                var excluidosPorPadrao = new HashSet<string> { "IfcGUID", "Número" };
                 foreach (Parameter p in source.Parameters)
-                    if (!p.IsReadOnly && p.HasValue) parametrosOrigem.Add(p);
+                    if (!p.IsReadOnly && p.HasValue && !excluidosPorPadrao.Contains(p.Definition?.Name))
+                        parametrosOrigem.Add(p);
             }
 
             var resultado = new List<object>();
@@ -437,12 +444,24 @@ namespace RevitMcp
             bool temZ = ProHas(args, "z_m", out var zv) && zv.ValueKind == JsonValueKind.Number;
             if (!temX && !temY && !temZ) throw new ArgumentException("Informe ao menos um de x_m, y_m ou z_m.");
 
+            bool estavaFixado = bp.Pinned;
             using (var tx = new Transaction(doc, "MCP: Ponto base"))
             {
                 tx.Start();
-                if (temX) bp.get_Parameter(BuiltInParameter.BASEPOINT_EASTWEST_PARAM)?.Set(MToFt(xv.GetDouble()));
-                if (temY) bp.get_Parameter(BuiltInParameter.BASEPOINT_NORTHSOUTH_PARAM)?.Set(MToFt(yv.GetDouble()));
-                if (temZ) bp.get_Parameter(BuiltInParameter.BASEPOINT_ELEVATION_PARAM)?.Set(MToFt(zv.GetDouble()));
+                // BASEPOINT_EASTWEST_PARAM/NORTHSOUTH/ELEVATION são somente leitura (e não há
+                // um Position com setter nesta API): a forma suportada de mover qualquer um dos
+                // dois BasePoint é como um Element comum, por translação
+                // (ElementTransformUtils.MoveElement). O Ponto Base do Projeto vem fixado
+                // (Pinned) por padrão, o que MoveElement recusa; libera antes e refixa depois.
+                if (estavaFixado) bp.Pinned = false;
+                var atual = bp.Position;
+                double x = temX ? MToFt(xv.GetDouble()) : atual.X;
+                double y = temY ? MToFt(yv.GetDouble()) : atual.Y;
+                double z = temZ ? MToFt(zv.GetDouble()) : atual.Z;
+                var translacao = new XYZ(x, y, z) - atual;
+                if (!translacao.IsZeroLength())
+                    ElementTransformUtils.MoveElement(doc, bp.Id, translacao);
+                if (estavaFixado) bp.Pinned = true;
                 tx.Commit();
             }
             return new { alvo = target, posicao = ProPoint(bp.Position) };

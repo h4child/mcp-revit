@@ -608,9 +608,11 @@ async def copy_parameters(source_id: int, target_ids: list[int], parameters: Opt
     """Copia valores de parâmetro de um elemento de origem para um ou mais elementos de destino.
 
     parameters: nomes específicos a copiar (padrão: todos os parâmetros de
-    instância graváveis e com valor na origem). Parâmetros que não existem no
-    destino, ou com tipo de armazenamento diferente, são reportados em 'erros'
-    sem interromper a cópia dos demais.
+    instância graváveis e com valor na origem, exceto IfcGUID e Número —
+    identificadores que devem ser únicos por elemento; qualquer um dos dois
+    pode ser copiado se pedido por nome explicitamente). Parâmetros que não
+    existem no destino, ou com tipo de armazenamento diferente, são
+    reportados em 'erros' sem interromper a cópia dos demais.
     """
     return await _rpc("copy_parameters", source_id=source_id, target_ids=target_ids, **_clean(parameters=parameters))
 
