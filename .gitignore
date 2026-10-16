@@ -22,6 +22,9 @@ venv/
 # Manifesto instalado localmente (contém caminho absoluto do usuário)
 addin/RevitMcp.addin
 
+# Configuração local do MCP (contém caminho absoluto do usuário)
+.mcp.json
+
 # Projetos, famílias, backups e saídas do Revit
 *.rvt
 *.rfa

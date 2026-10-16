@@ -314,6 +314,18 @@ async def audit_hosted_cuts(category: str = "Windows") -> dict:
 
 
 @mcp.tool()
+async def audit_sections() -> dict:
+    """Verifica os cortes de edificação (ViewSection) do projeto, sem alterar o modelo.
+
+    Lista cada corte com a direção aproximada (Norte/Sul/Leste/Oeste etc.,
+    pela direção de vista) e se está colocado em alguma prancha. Aponta
+    quando só existe uma direção de corte (provável falta de corte
+    transversal ou longitudinal) e quais cortes ainda não estão em prancha.
+    """
+    return await _rpc("audit_sections")
+
+
+@mcp.tool()
 async def audit_project_setup() -> dict:
     """Checklist do projeto arquitetônico com nota de 0 a 100: informações do projeto,
     arquivo salvo, norte, níveis/plantas/eixos fixados, paredes com tipos definidos,
