@@ -1,12 +1,29 @@
 # Novas ações implementadas — rodada "catálogo de 1010 ações"
 
-> ⚠️ **Implementado mas não testado contra o Revit** — todo o código desta
-> rodada (Python + C#) foi escrito e revisado por leitura/comparação linha a
-> linha com os comandos vizinhos, mas sem acesso a uma instância real do
-> Revit nesta sessão. Nenhuma das ferramentas abaixo foi executada contra um
-> documento `.rvt` de verdade. Uma sessão com Revit instalado precisa validar
-> cada uma antes de uso em produção (abrir um projeto, chamar a ferramenta,
-> conferir o resultado e o estado do modelo).
+> ✅ **Testado contra o Revit em 2026-10-16.** As 24 ferramentas originais
+> (menos `get_project_units`/`set_project_units`, removidas por duplicar uma
+> versão já mesclada de outra branch — ver abaixo) foram executadas, uma a
+> uma, contra `Casa_Alto_Padrao.rvt` num Revit 2025 real. Três bugs reais
+> foram encontrados e corrigidos nesse processo:
+>
+> - `ungroup_elements` não compilava: `Group` era ambíguo entre
+>   `Autodesk.Revit.DB.Group` e `System.Text.RegularExpressions.Group`
+>   (este arquivo também usa `Regex` em `validate_naming`).
+> - `set_project_base_point`: os parâmetros `BASEPOINT_*_PARAM` são somente
+>   leitura via `get_Parameter` nesta API, para os dois `BasePoint`; a forma
+>   suportada de mover um é por translação
+>   (`ElementTransformUtils.MoveElement`), não por parâmetro — e o Ponto
+>   Base do Projeto vem fixado (`Pinned`) por padrão, exigindo destravar
+>   antes de mover.
+> - `copy_parameters` no modo "copiar todos" copiava `IfcGUID` e `Número`,
+>   identificadores que devem ser únicos por elemento (o segundo chegou a
+>   disparar o aviso do Revit "elementos têm valores 'Número' duplicados"
+>   ao vivo). Os dois agora são excluídos desse modo por padrão, mas podem
+>   ser copiados se pedidos explicitamente por nome.
+>
+> `server/manifest.json` também foi regenerado (`scripts/update_manifest.py`)
+> para incluir as 22 ferramentas sobreviventes, e a suíte `pytest tests`
+> (59 testes) mais `dotnet build` continuam passando.
 
 ## Contexto
 
@@ -141,10 +158,16 @@ considerado risco alto demais para esta rodada.
 
 ## 8. Configurações gerais do Revit e padrões do projeto (seção 20)
 
-| Ferramenta Python | Comando C# | Descrição | Itens |
-|---|---|---|---|
-| `get_project_units` | `get_project_units` | Unidade, símbolo e precisão de exibição de comprimento, área, volume e ângulo do projeto. | 593 |
-| `set_project_units` | `set_project_units` | Define as unidades de exibição (comprimento/área/volume/ângulo) e/ou a precisão de cada uma, usando a API `ForgeTypeId`/`FormatOptions`. | 594, 595, 596, 597 |
+`get_project_units`/`set_project_units` (itens 593–597) foram implementados
+nesta rodada, mas **removidos no merge**: outra branch (`ccr-c71f5065`) já
+tinha adicionado um par de ferramentas com o mesmo nome e objetivo — unidade/
+precisão de exibição de comprimento, área, volume e ângulo — só que com uma
+assinatura diferente (`unidade`/`grandeza`/`precisao`, em vez de
+`length`/`area`/`volume`/`angle`/`accuracy`) e foi mesclada à `main` primeiro.
+Manter as duas teria deixado duas funções Python com o mesmo nome no mesmo
+módulo e dois `case` C# com o mesmo rótulo em switches encadeados (a segunda
+delas, código morto). A versão já em produção cobre os mesmos itens do
+catálogo; ver `get_project_units`/`set_project_units` em `CommandsPro.cs`.
 
 ## 9. API, diagnóstico e inventário do modelo (seção 32)
 
