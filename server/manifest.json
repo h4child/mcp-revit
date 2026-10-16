@@ -548,6 +548,46 @@
       "description": "Importa DWG/DXF na vista ativa."
     },
     {
+      "name": "create_detail_arc",
+      "description": "Cria arco de detalhe (2D) na vista ativa, por centro, raio e ângulos em graus (sentido anti-horário a partir do eixo X)."
+    },
+    {
+      "name": "create_detail_circle",
+      "description": "Cria círculo de detalhe (2D) completo na vista ativa, por centro e raio."
+    },
+    {
+      "name": "create_detail_ellipse",
+      "description": "Cria elipse de detalhe (2D) completa na vista ativa, por centro e semieixos."
+    },
+    {
+      "name": "create_detail_polygon",
+      "description": "Cria polígono regular (3 a 24 lados) como linhas de detalhe fechadas na vista ativa."
+    },
+    {
+      "name": "create_model_line",
+      "description": "Cria linha de modelo (geometria 3D real, não anotação) entre dois pontos."
+    },
+    {
+      "name": "create_masking_region",
+      "description": "Cria região mascarada (oculta linhas atrás dela) num retângulo da vista ativa."
+    },
+    {
+      "name": "ungroup_elements",
+      "description": "Desagrupa uma instância de grupo de modelo (por ID da instância), liberando os elementos membros para edição individual."
+    },
+    {
+      "name": "copy_parameters",
+      "description": "Copia valores de parâmetro de um elemento de origem para um ou mais elementos de destino."
+    },
+    {
+      "name": "list_line_styles",
+      "description": "Lista os estilos de linha (subcategorias de 'Linhas') com peso de projeção e cor."
+    },
+    {
+      "name": "list_fill_patterns",
+      "description": "Lista os padrões de preenchimento (hachuras) do documento, com destino (desenho ou modelo) e se é o preenchimento sólido."
+    },
+    {
       "name": "get_project_info",
       "description": "Lê as informações do projeto (nome, número, cliente, endereço, status, autor e demais parâmetros)."
     },
@@ -740,6 +780,34 @@
       "description": "Cria linhas separadoras de ambiente (lines=[{x1_m,y1_m,x2_m,y2_m}]) para dividir ambientes sem paredes, como sala/cozinha integradas."
     },
     {
+      "name": "read_parameter_by_guid",
+      "description": "Lê um parâmetro compartilhado de um elemento pelo GUID (estável entre projetos e famílias, mesmo quando o nome do parâmetro muda)."
+    },
+    {
+      "name": "get_link_info",
+      "description": "Consulta caminho, status de carregamento e transformação (posição/rotação em torno de Z) de um vínculo Revit."
+    },
+    {
+      "name": "get_bounding_box",
+      "description": "Consulta a caixa delimitadora (bounding box) de um elemento: mínimo, máximo, centro e dimensões em metros."
+    },
+    {
+      "name": "get_elements_near_point",
+      "description": "Lista elementos cuja caixa delimitadora intersecta uma caixa de busca cúbica ao redor de um ponto, ordenados pela distância do centro ao ponto."
+    },
+    {
+      "name": "get_elements_in_box",
+      "description": "Lista elementos cuja caixa delimitadora intersecta uma caixa 3D definida por mínimos e máximos, em coordenadas do modelo (metros)."
+    },
+    {
+      "name": "validate_naming",
+      "description": "Valida nomes de vistas, pranchas, famílias, tipos, materiais, filtros, templates e worksets contra um padrão e/ou regras de higiene."
+    },
+    {
+      "name": "get_model_inventory",
+      "description": "Inventário completo do projeto: arquivo, caminho, worksharing, contagem de elementos por categoria, níveis, vistas, pranchas, famílias, materiais, worksets..."
+    },
+    {
       "name": "list_element_types",
       "description": "Lista os tipos de uma categoria com dimensões, camadas e quantas instâncias usam cada um."
     },
@@ -858,6 +926,26 @@
     {
       "name": "audit_project_setup",
       "description": "Checklist do projeto arquitetônico com nota de 0 a 100: informações do projeto, arquivo salvo, norte, níveis/plantas/eixos fixados, paredes com tipos..."
+    },
+    {
+      "name": "rename_level",
+      "description": "Renomeia um nível, identificado por level_id ou pelo nome atual (level)."
+    },
+    {
+      "name": "set_level_elevation",
+      "description": "Altera a elevação de um nível (identificado por level_id ou level)."
+    },
+    {
+      "name": "create_reference_plane",
+      "description": "Cria um plano de referência entre dois pontos, visível na vista indicada (padrão: vista ativa)."
+    },
+    {
+      "name": "set_project_base_point",
+      "description": "Move o Ponto Base do Projeto (padrão) ou o Ponto de Levantamento (target=\"survey\")."
+    },
+    {
+      "name": "audit_levels_grids",
+      "description": "Audita níveis e eixos do projeto: nomes duplicados, elevações duplicadas entre níveis e eixos sem nome."
     }
   ],
   "keywords": [

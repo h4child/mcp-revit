@@ -544,30 +544,6 @@ async def get_elements_in_box(x_min_m: float, y_min_m: float, z_min_m: float,
 
 
 @mcp.tool()
-async def get_project_units() -> dict:
-    """Consulta as unidades de exibição do projeto: comprimento, área, volume e ângulo
-    (unidade, símbolo e precisão de cada uma)."""
-    return await _rpc("get_project_units")
-
-
-@mcp.tool()
-async def set_project_units(length: Optional[str] = None, area: Optional[str] = None,
-                            volume: Optional[str] = None, angle: Optional[str] = None,
-                            accuracy: Optional[dict] = None) -> dict:
-    """Define as unidades de exibição do projeto.
-
-    length/area/volume/angle aceitam nomes como "Meters", "Millimeters",
-    "Centimeters", "Feet", "FeetFractionalInches" (comprimento);
-    "SquareMeters", "SquareFeet" (área); "CubicMeters", "CubicFeet" (volume);
-    "Degrees", "Radians" (ângulo) — em português ou inglês. accuracy define a
-    precisão de cada grandeza, ex.: {"length": 0.001, "area": 0.01}. Informe
-    ao menos uma unidade ou accuracy.
-    """
-    return await _rpc("set_project_units", **_clean(length=length, area=area, volume=volume,
-                      angle=angle, accuracy=accuracy))
-
-
-@mcp.tool()
 async def validate_naming(scope: Optional[list[str]] = None, pattern: Optional[str] = None,
                           forbidden_chars: Optional[str] = None, max_length: Optional[int] = None) -> dict:
     """Valida nomes de vistas, pranchas, famílias, tipos, materiais, filtros,

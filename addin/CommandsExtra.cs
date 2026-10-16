@@ -18,7 +18,6 @@
 //   • Links: caminho, status de carregamento e transformação de um vínculo.
 //   • Consultas espaciais: bounding box, elementos próximos a um ponto,
 //     elementos dentro de uma caixa 3D.
-//   • Unidades do projeto: consultar e definir comprimento/área/volume/ângulo.
 //   • Governança: validação de nomes por regex/caracteres proibidos/tamanho;
 //     inventário completo do modelo (contagens por categoria e metadados).
 //
@@ -83,10 +82,6 @@ namespace RevitMcp
                 case "get_bounding_box":        return GetBoundingBox(uiApp, a);
                 case "get_elements_near_point":  return GetElementsNearPoint(uiApp, a);
                 case "get_elements_in_box":     return GetElementsInBox(uiApp, a);
-
-                // --- Unidades do projeto ---
-                case "get_project_units":       return GetProjectUnits(uiApp);
-                case "set_project_units":       return SetProjectUnits(uiApp, a);
 
                 // --- Governança e diagnóstico ---
                 case "validate_naming":         return ValidateNaming(uiApp, a);
@@ -269,7 +264,7 @@ namespace RevitMcp
         {
             var doc = RequireDoc(uiApp);
             var id = GetElementIdReq(args, "group_id");
-            var group = doc.GetElement(id) as Group
+            var group = doc.GetElement(id) as Autodesk.Revit.DB.Group
                 ?? throw new ArgumentException($"{id.Value} não é uma instância de grupo (Group). Use list_groups.");
             using (var tx = new Transaction(doc, "MCP: Desagrupar"))
             {
@@ -703,104 +698,6 @@ namespace RevitMcp
             }).ToList();
 
             return new { quantidade = elementos.Count, elementos };
-        }
-
-        // =====================================================================
-        // UNIDADES DO PROJETO
-        // =====================================================================
-
-        /// <summary>Resolve um nome textual (inglês ou português) para o ForgeTypeId de unidade correspondente.</summary>
-        private static ForgeTypeId ResolveUnitTypeId(string name)
-        {
-            switch (Normalizar(name).Replace(" ", ""))
-            {
-                case "meters": case "metros": case "m": return UnitTypeId.Meters;
-                case "millimeters": case "milimetros": case "mm": return UnitTypeId.Millimeters;
-                case "centimeters": case "centimetros": case "cm": return UnitTypeId.Centimeters;
-                case "feet": case "pes": case "ft": return UnitTypeId.Feet;
-                case "feetfractionalinches": case "feetandfractionalinches": return UnitTypeId.FeetFractionalInches;
-                case "fractionalinches": case "inches": case "polegadas": return UnitTypeId.FractionalInches;
-                case "squaremeters": case "metroquadrado": case "m2": return UnitTypeId.SquareMeters;
-                case "squarefeet": case "pequadrado": case "ft2": return UnitTypeId.SquareFeet;
-                case "squarecentimeters": case "cm2": return UnitTypeId.SquareCentimeters;
-                case "squaremillimeters": case "mm2": return UnitTypeId.SquareMillimeters;
-                case "cubicmeters": case "metrocubico": case "m3": return UnitTypeId.CubicMeters;
-                case "cubicfeet": case "pecubico": case "ft3": return UnitTypeId.CubicFeet;
-                case "cubiccentimeters": case "cm3": return UnitTypeId.CubicCentimeters;
-                case "degrees": case "graus": return UnitTypeId.Degrees;
-                case "radians": case "radianos": return UnitTypeId.Radians;
-                case "degreesminutesseconds": case "dms": return UnitTypeId.DegreesMinutesSeconds;
-                default: throw new ArgumentException($"Unidade desconhecida: {name}.");
-            }
-        }
-
-        /// <summary>Consulta as unidades de exibição do projeto (comprimento, área, volume e ângulo).</summary>
-        private static object GetProjectUnits(UIApplication uiApp)
-        {
-            var doc = RequireDoc(uiApp);
-            var units = doc.GetUnits();
-
-            object Describe(ForgeTypeId spec)
-            {
-                var fo = units.GetFormatOptions(spec);
-                string simbolo = null;
-                // GetLabelForSymbol lança para um ForgeTypeId "vazio" (nenhum símbolo definido);
-                // tratado como ausência de símbolo em vez de checar ForgeTypeId.Empty().
-                try { simbolo = LabelUtils.GetLabelForSymbol(fo.GetSymbolTypeId()); }
-                catch { }
-                return new
-                {
-                    unidade = LabelUtils.GetLabelForUnit(fo.GetUnitTypeId()),
-                    simbolo,
-                    precisao = fo.Accuracy
-                };
-            }
-
-            return new
-            {
-                comprimento = Describe(SpecTypeId.Length),
-                area = Describe(SpecTypeId.Area),
-                volume = Describe(SpecTypeId.Volume),
-                angulo = Describe(SpecTypeId.Angle)
-            };
-        }
-
-        /// <summary>Define as unidades de exibição do projeto (comprimento/área/volume/ângulo) e/ou a precisão de cada uma.</summary>
-        private static object SetProjectUnits(UIApplication uiApp, JsonElement args)
-        {
-            var doc = RequireDoc(uiApp);
-            var units = doc.GetUnits();
-            var alterados = new List<string>();
-
-            void Aplicar(string argName, ForgeTypeId spec, string chaveAccuracy)
-            {
-                string unitName = GetS(args, argName);
-                bool temAccuracy = ProHas(args, "accuracy", out var accObj) && accObj.ValueKind == JsonValueKind.Object
-                    && accObj.TryGetProperty(chaveAccuracy, out var accVal) && accVal.ValueKind == JsonValueKind.Number;
-                if (unitName == null && !temAccuracy) return;
-
-                var fo = units.GetFormatOptions(spec);
-                if (unitName != null) fo.SetUnitTypeId(ResolveUnitTypeId(unitName));
-                if (temAccuracy) fo.Accuracy = accVal.GetDouble();
-                units.SetFormatOptions(spec, fo);
-                alterados.Add(argName);
-            }
-
-            Aplicar("length", SpecTypeId.Length, "length");
-            Aplicar("area", SpecTypeId.Area, "area");
-            Aplicar("volume", SpecTypeId.Volume, "volume");
-            Aplicar("angle", SpecTypeId.Angle, "angle");
-
-            if (alterados.Count == 0)
-                throw new ArgumentException("Informe ao menos uma unidade (length/area/volume/angle) ou accuracy.");
-
-            using (var tx = new Transaction(doc, "MCP: Unidades do projeto"))
-            {
-                tx.Start();
-                doc.SetUnits(units);
-                tx.Commit();
-            }
-            return new { alterados };
         }
 
         // =====================================================================
