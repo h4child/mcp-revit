@@ -45,6 +45,27 @@ async def get_project_location() -> dict:
     return await _rpc("get_project_location")
 
 
+@mcp.tool()
+async def get_project_units() -> dict:
+    """Lê as unidades do projeto (Gerenciar > Unidades do Projeto): unidade e precisão
+    de comprimento, área, volume e ângulo."""
+    return await _rpc("get_project_units")
+
+
+@mcp.tool()
+async def set_project_units(unidade: str, grandeza: str = "length", precisao: Optional[float] = None) -> dict:
+    """Define a unidade de uma grandeza do projeto (Gerenciar > Unidades do Projeto).
+
+    grandeza: length (padrão), area, volume ou angle.
+    unidade: mm, cm, m, m_cm (metros e centímetros), ft, ft_in (pés e frações) ou,
+        para angle, deg. Para area/volume use m2/m3 (ou as mesmas opções lineares,
+        ex. "cm" vira cm²/cm³).
+    precisao: incremento de arredondamento na própria unidade (ex.: 0.01 = "ao
+        centímetro mais próximo" quando unidade="m"). Se omitido, mantém a atual.
+    """
+    return await _rpc("set_project_units", **_clean(unidade=unidade, grandeza=grandeza, precisao=precisao))
+
+
 
 
 
@@ -116,6 +137,42 @@ async def set_view_properties(view_id: Optional[int] = None, name: Optional[str]
     return await _rpc("set_view_properties", **_clean(
         view_id=view_id, name=name, scale=scale, detail_level=detail_level, discipline=discipline,
         phase=phase, crop=crop, crop_visible=crop_visible, template_id=template_id))
+
+
+@mcp.tool()
+async def get_view_range(view_id: Optional[int] = None) -> dict:
+    """Lê o plano de corte (View Range) de uma planta: topo, corte ("corte baixo"),
+    inferior e profundidade de vista — cada um com o nível associado e o
+    deslocamento em metros. Vista ativa por padrão."""
+    return await _rpc("get_view_range", **_clean(view_id=view_id))
+
+
+@mcp.tool()
+async def set_view_range(view_id: Optional[int] = None, cut_offset_m: Optional[float] = None,
+                         cut_level: Optional[str] = None, top_offset_m: Optional[float] = None,
+                         top_level: Optional[str] = None, bottom_offset_m: Optional[float] = None,
+                         bottom_level: Optional[str] = None, view_depth_offset_m: Optional[float] = None,
+                         view_depth_level: Optional[str] = None) -> dict:
+    """Ajusta o plano de corte (View Range) de uma planta.
+
+    Cada plano (topo, corte, inferior, profundidade de vista) aceita um nível
+    (*_level) e/ou um deslocamento em metros a partir dele (*_offset_m); informe
+    só o que quiser mudar. cut_offset_m é o "corte baixo/alto" clássico — ex.:
+    1.2 m acima do nível da planta para aparecer peitoris de janela. Vista ativa
+    por padrão; use só em plantas (ViewPlan).
+    """
+    return await _rpc("set_view_range", **_clean(
+        view_id=view_id, cut_offset_m=cut_offset_m, cut_level=cut_level,
+        top_offset_m=top_offset_m, top_level=top_level,
+        bottom_offset_m=bottom_offset_m, bottom_level=bottom_level,
+        view_depth_offset_m=view_depth_offset_m, view_depth_level=view_depth_level))
+
+
+@mcp.tool()
+async def apply_view_template(view_ids: list[int], template_id: int) -> dict:
+    """Aplica um template de vista a várias vistas de uma vez (ex.: todas as
+    plantas de um pavimento). Veja list_view_templates para o template_id."""
+    return await _rpc("apply_view_template", view_ids=view_ids, template_id=template_id)
 
 
 @mcp.tool()

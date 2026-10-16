@@ -560,6 +560,14 @@
       "description": "Ponto base, ponto de levantamento, coordenadas compartilhadas, norte verdadeiro e latitude/longitude."
     },
     {
+      "name": "get_project_units",
+      "description": "Lê as unidades do projeto (Gerenciar > Unidades do Projeto): unidade e precisão de comprimento, área, volume e ângulo."
+    },
+    {
+      "name": "set_project_units",
+      "description": "Define a unidade de uma grandeza do projeto (Gerenciar > Unidades do Projeto)."
+    },
+    {
       "name": "create_workset",
       "description": "Cria worksets de usuário em modelo workshared (ex.: [\"Arquitetura\", \"Estrutura\", \"MEP\"])."
     },
@@ -582,6 +590,18 @@
     {
       "name": "set_view_properties",
       "description": "Ajusta nome, escala (ex.: 50 = 1:50), nível de detalhe (coarse/medium/fine), disciplina (Architectural, Structural, Mechanical, Electrical, Plumbing,..."
+    },
+    {
+      "name": "get_view_range",
+      "description": "Lê o plano de corte (View Range) de uma planta: topo, corte (\"corte baixo\"), inferior e profundidade de vista — cada um com o nível associado e o..."
+    },
+    {
+      "name": "set_view_range",
+      "description": "Ajusta o plano de corte (View Range) de uma planta."
+    },
+    {
+      "name": "apply_view_template",
+      "description": "Aplica um template de vista a várias vistas de uma vez (ex.: todas as plantas de um pavimento)."
     },
     {
       "name": "create_elevations",
@@ -830,6 +850,10 @@
     {
       "name": "audit_hosted_cuts",
       "description": "Verifica se cada porta/janela hospedada realmente abre um vão na parede."
+    },
+    {
+      "name": "audit_sections",
+      "description": "Verifica os cortes de edificação (ViewSection) do projeto, sem alterar o modelo."
     },
     {
       "name": "audit_project_setup",

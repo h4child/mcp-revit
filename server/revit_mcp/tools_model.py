@@ -559,11 +559,18 @@ async def place_rooms() -> dict:
 
 @mcp.tool()
 async def place_rooms_at(rooms: list, level: Optional[str] = None) -> dict:
-    """Cria ambientes Revit em posições exatas de uma planta.
+    """Cria ambientes Revit em posições exatas de uma planta, já com acabamentos e pé-direito.
 
-    rooms contém objetos {name, x_m, y_m, number?}. Os pontos devem estar em
-    regiões fechadas por paredes. Diferente de place_rooms, não usa pontos
-    fixos: serve para qualquer programa arquitetônico.
+    rooms contém objetos {name, x_m, y_m, number?, finishes?, upper_limit?,
+    limit_offset_m?}. Os pontos devem estar em regiões fechadas por paredes.
+    Diferente de place_rooms, não usa pontos fixos: serve para qualquer
+    programa arquitetônico.
+
+    finishes: {"piso": "Porcelanato", "parede": "Reboco e pintura",
+               "forro": "Gesso", "rodape": "Poliestireno 7cm"}.
+    upper_limit: nível que limita o pé-direito (padrão: o nível acima, se existir).
+    limit_offset_m: deslocamento acima de upper_limit (pode ser negativo).
+    Retorna pe_direito_m calculado para cada ambiente criado.
     """
     args = {"rooms": rooms}
     if level:

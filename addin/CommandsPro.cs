@@ -49,6 +49,8 @@ namespace RevitMcp
                 case "get_project_info":        return GetProjectInfo(uiApp);
                 case "set_project_info":        return SetProjectInfo(uiApp, a);
                 case "get_project_location":    return GetProjectLocation(uiApp);
+                case "get_project_units":       return GetProjectUnits(uiApp);
+                case "set_project_units":       return SetProjectUnits(uiApp, a);
                 case "create_workset":          return CreateWorkset(uiApp, a);
                 case "set_element_workset":     return SetElementWorkset(uiApp, a);
                 case "find_elements":           return FindElements(uiApp, a);
@@ -57,6 +59,9 @@ namespace RevitMcp
                 // --- Vistas ---
                 case "duplicate_view":          return DuplicateView(uiApp, a);
                 case "set_view_properties":     return SetViewProperties(uiApp, a);
+                case "get_view_range":          return GetViewRange(uiApp, a);
+                case "set_view_range":          return SetViewRange(uiApp, a);
+                case "apply_view_template":     return ApplyViewTemplate(uiApp, a);
                 case "create_elevations":       return CreateElevations(uiApp, a);
                 case "create_3d_view":          return Create3DView(uiApp, a);
                 case "create_drafting_view":    return CreateDraftingView(uiApp, a);
@@ -578,6 +583,78 @@ namespace RevitMcp
             };
         }
 
+        private static readonly (string chave, ForgeTypeId unidade)[] ProUnitSymbols =
+        {
+            ("mm", UnitTypeId.Millimeters), ("cm", UnitTypeId.Centimeters),
+            ("m_cm", UnitTypeId.MetersCentimeters), ("m", UnitTypeId.Meters),
+            ("ft_in", UnitTypeId.FeetFractionalInches), ("ft", UnitTypeId.Feet),
+            ("deg", UnitTypeId.Degrees), ("m2", UnitTypeId.SquareMeters),
+            ("m3", UnitTypeId.CubicMeters),
+        };
+
+        private static ForgeTypeId ProResolveSpec(string grandeza) => (grandeza ?? "length").Trim().ToLowerInvariant() switch
+        {
+            "length" or "comprimento" => SpecTypeId.Length,
+            "area" => SpecTypeId.Area,
+            "volume" => SpecTypeId.Volume,
+            "angle" or "angulo" or "ângulo" => SpecTypeId.Angle,
+            _ => throw new ArgumentException("grandeza deve ser length, area, volume ou angle.")
+        };
+
+        private static ForgeTypeId ProResolveUnit(string unidade)
+        {
+            var chave = (unidade ?? "").Trim().ToLowerInvariant().Replace(" ", "").Replace("²", "2").Replace("³", "3");
+            var match = ProUnitSymbols.FirstOrDefault(u => u.chave == chave);
+            if (match.unidade != null) return match.unidade;
+            throw new ArgumentException($"Unidade desconhecida: {unidade}. Use mm, cm, m, m_cm, ft, ft_in, deg, m2 ou m3.");
+        }
+
+        private static string ProUnitLabel(ForgeTypeId unidade)
+        {
+            var match = ProUnitSymbols.FirstOrDefault(u => u.unidade.Equals(unidade));
+            return match.chave ?? unidade.TypeId;
+        }
+
+        private static object GetProjectUnits(UIApplication uiApp)
+        {
+            var doc = RequireDoc(uiApp);
+            var units = doc.GetUnits();
+            object Info(ForgeTypeId specId)
+            {
+                var fo = units.GetFormatOptions(specId);
+                return new { unidade = ProUnitLabel(fo.GetUnitTypeId()), precisao = fo.Accuracy };
+            }
+            return new
+            {
+                comprimento = Info(SpecTypeId.Length),
+                area = Info(SpecTypeId.Area),
+                volume = Info(SpecTypeId.Volume),
+                angulo = Info(SpecTypeId.Angle)
+            };
+        }
+
+        private static object SetProjectUnits(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            string unidadeTxt = GetS(args, "unidade") ?? throw new ArgumentException("Argumento 'unidade' obrigatório.");
+            string grandezaTxt = GetS(args, "grandeza", "length");
+            var specId = ProResolveSpec(grandezaTxt);
+            var unitId = ProResolveUnit(unidadeTxt);
+            double precisao = GetD(args, "precisao", double.NaN);
+
+            using (var tx = ProTx(doc, "Unidades do projeto"))
+            {
+                var units = doc.GetUnits();
+                var fo = units.GetFormatOptions(specId);
+                fo.SetUnitTypeId(unitId);
+                if (!double.IsNaN(precisao)) fo.Accuracy = precisao;
+                units.SetFormatOptions(specId, fo);
+                doc.SetUnits(units);
+                tx.Commit();
+            }
+            return new { grandeza = grandezaTxt, unidade = unidadeTxt, precisao = double.IsNaN(precisao) ? (double?)null : precisao };
+        }
+
 
         private static Phase ProPhase(Document doc, string name)
         {
@@ -896,6 +973,110 @@ namespace RevitMcp
                 tx.Commit();
             }
             return new { id = view.Id.Value, nome = view.Name, alteracoes };
+        }
+
+        private static string CardinalFromDirection(XYZ dir)
+        {
+            double ang = Math.Atan2(dir.Y, dir.X) * 180.0 / Math.PI;
+            if (ang < 0) ang += 360;
+            string[] names = { "Leste", "Nordeste", "Norte", "Noroeste", "Oeste", "Sudoeste", "Sul", "Sudeste" };
+            int idx = (int)Math.Round(ang / 45.0) % 8;
+            return names[idx];
+        }
+
+        private static object DescribeViewRangePlane(Document doc, PlanViewRange range, PlanViewPlane plane)
+        {
+            var levelId = range.GetLevelId(plane);
+            var level = levelId != ElementId.InvalidElementId ? doc.GetElement(levelId) as Level : null;
+            return new { nivel = level?.Name, offset_m = Math.Round(FtToM(range.GetOffset(plane)), 4) };
+        }
+
+        private static object GetViewRange(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var view = ProView(uiApp, doc, args) as ViewPlan
+                ?? throw new ArgumentException("view_id deve ser uma planta (ViewPlan).");
+            var range = view.GetViewRange();
+            return new
+            {
+                id = view.Id.Value,
+                vista = view.Name,
+                topo = DescribeViewRangePlane(doc, range, PlanViewPlane.TopClipPlane),
+                corte = DescribeViewRangePlane(doc, range, PlanViewPlane.CutPlane),
+                inferior = DescribeViewRangePlane(doc, range, PlanViewPlane.BottomClipPlane),
+                profundidade_vista = DescribeViewRangePlane(doc, range, PlanViewPlane.ViewDepthPlane)
+            };
+        }
+
+        private static object SetViewRange(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var view = ProView(uiApp, doc, args) as ViewPlan
+                ?? throw new ArgumentException("view_id deve ser uma planta (ViewPlan).");
+            var range = view.GetViewRange();
+            var alteracoes = new List<string>();
+
+            void SetPlane(PlanViewPlane plane, string offsetKey, string levelKey, string label)
+            {
+                if (ProHas(args, levelKey, out var lv) && lv.ValueKind == JsonValueKind.String)
+                {
+                    var level = FindLevel(doc, lv.GetString())
+                        ?? throw new ArgumentException($"Nível '{lv.GetString()}' não encontrado ({levelKey}).");
+                    range.SetLevelId(plane, level.Id);
+                    alteracoes.Add($"{label}_nivel");
+                }
+                if (ProHas(args, offsetKey, out var ov) && ov.ValueKind == JsonValueKind.Number)
+                {
+                    range.SetOffset(plane, MToFt(ov.GetDouble()));
+                    alteracoes.Add($"{label}_offset");
+                }
+            }
+
+            using (var tx = ProTx(doc, "Plano de corte da planta"))
+            {
+                SetPlane(PlanViewPlane.TopClipPlane, "top_offset_m", "top_level", "topo");
+                SetPlane(PlanViewPlane.CutPlane, "cut_offset_m", "cut_level", "corte");
+                SetPlane(PlanViewPlane.BottomClipPlane, "bottom_offset_m", "bottom_level", "inferior");
+                SetPlane(PlanViewPlane.ViewDepthPlane, "view_depth_offset_m", "view_depth_level", "profundidade_vista");
+                if (alteracoes.Count == 0)
+                    throw new ArgumentException(
+                        "Nada a alterar. Use cut_offset_m/cut_level, top_offset_m/top_level, " +
+                        "bottom_offset_m/bottom_level e/ou view_depth_offset_m/view_depth_level.");
+                view.SetViewRange(range);
+                tx.Commit();
+            }
+            return new { id = view.Id.Value, vista = view.Name, alteracoes };
+        }
+
+        private static object ApplyViewTemplate(UIApplication uiApp, JsonElement args)
+        {
+            var doc = RequireDoc(uiApp);
+            var ids = ProIds(args, "view_ids", required: true);
+            if (!ProHas(args, "template_id", out var tv) || tv.ValueKind != JsonValueKind.Number)
+                throw new ArgumentException("Argumento 'template_id' obrigatório.");
+            var templateId = new ElementId(tv.GetInt64());
+            var template = doc.GetElement(templateId) as View;
+            if (template == null || !template.IsTemplate)
+                throw new ArgumentException("template_id não é um template de vista.");
+
+            var aplicadas = new List<object>();
+            var erros = new List<string>();
+            using (var tx = ProTx(doc, "Aplicar template de vista"))
+            {
+                foreach (var id in ids)
+                {
+                    var view = doc.GetElement(id) as View;
+                    if (view == null || view.IsTemplate) { erros.Add($"{id.Value}: não é uma vista válida."); continue; }
+                    try
+                    {
+                        view.ViewTemplateId = templateId;
+                        aplicadas.Add(new { id = view.Id.Value, nome = view.Name });
+                    }
+                    catch (Exception ex) { erros.Add($"{id.Value}: {ex.Message}"); }
+                }
+                tx.Commit();
+            }
+            return new { template = new { id = template.Id.Value, nome = template.Name }, quantidade = aplicadas.Count, vistas = aplicadas, erros };
         }
 
         private static object CreateElevations(UIApplication uiApp, JsonElement args)
